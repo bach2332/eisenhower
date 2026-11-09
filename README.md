@@ -9,7 +9,8 @@ A static web app (plain HTML/JS, no build step) that you can install as a PWA on
 - **Quick add**: tap `+`, type a title, press Enter. Optionally add a detail, pick the target quadrant and set a deadline (Today / Tomorrow / +1 week) right away.
 - **Deadline + timeline**: each task shows `start date → deadline`, a time-elapsed bar and a plain label (Due today, 3 days left, 2 days overdue, ...). Orange when the deadline is close, red when overdue. The start date defaults to the creation date and can be changed in the Edit sheet.
 - **Detail**: optional description (up to 2000 characters); the card shows an icon and a one-line preview.
-- **Move and reorder**: hold the ⠿ handle for 1 second, then drag. Drop into another quadrant, or between cards to put a task exactly where you want it (works inside the same quadrant and in Backlog too). You can also tap a task and choose a quadrant in the Edit sheet. Quadrants you have not reordered yet are sorted by deadline.
+- **Move and reorder**: hold the ⠿ handle for half a second, then drag. Drop into another quadrant, or between cards to put a task exactly where you want it. You can also tap a task and choose a quadrant in the Edit sheet.
+- **Order inside a quadrant** (and Backlog): tasks with a deadline come first, nearest deadline on top. Tasks without a deadline sit below them and can be sorted by hand.
 - **Complete**: tap the circle on the left (with Undo). The completion date and the quadrant the task was in are kept ("Done 09/11 · from Now").
 - **Two views**: Matrix and Table (filter, sort, search, Deadline and Done columns).
 - **Phone in landscape**: Backlog on the left and the 2x2 matrix filling the screen, so everything is visible at once.
