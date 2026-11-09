@@ -3,38 +3,52 @@
 
 /* ---------- constants ---------- */
 const Q = [
-  { id: 'q1', name: 'Do',        sub: 'Urgent · Important' },
-  { id: 'q2', name: 'Schedule',  sub: 'Not urgent · Important' },
-  { id: 'q3', name: 'Delegate',  sub: 'Urgent · Not important' },
-  { id: 'q4', name: 'Eliminate', sub: 'Not urgent · Not important' },
+  { id: 'q1', name: 'Now',      sub: 'Gấp + quan trọng · làm ngay' },
+  { id: 'q2', name: 'Next',     sub: 'Quan trọng, chưa gấp · lên lịch' },
+  { id: 'q3', name: 'Hand off', sub: 'Gấp, ít quan trọng · giao người khác' },
+  { id: 'q4', name: 'Maybe',    sub: 'Chưa gấp, ít quan trọng · để sau hoặc bỏ' },
 ];
-const QN = { inbox: 'Inbox', q1: 'Do', q2: 'Schedule', q3: 'Delegate', q4: 'Eliminate' };
-const ORDER = ['inbox', 'q1', 'q2', 'q3', 'q4'];
-const QORD = { q1: 0, q2: 1, q3: 2, q4: 3, inbox: 4 };
+const QN = { backlog: 'Backlog', q1: 'Now', q2: 'Next', q3: 'Hand off', q4: 'Maybe' };
+const ORDER = ['backlog', 'q1', 'q2', 'q3', 'q4'];
+const QORD = { q1: 0, q2: 1, q3: 2, q4: 3, backlog: 4 };
 const K_DATA = 'eisen.data.v1', K_CFG = 'eisen.cfg.v1', FILE = 'tasks.json';
 
 const HANDLE = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><circle cx="6" cy="4" r="1.6"/><circle cx="12" cy="4" r="1.6"/><circle cx="6" cy="9" r="1.6"/><circle cx="12" cy="9" r="1.6"/><circle cx="6" cy="14" r="1.6"/><circle cx="12" cy="14" r="1.6"/></svg>';
 const CHECK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 const PLUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+const NOTE = '<svg class="dtl" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>';
 
 /* ---------- helpers ---------- */
 const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = n => String(n).padStart(2, '0');
 const ymd = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const today = () => ymd(new Date());
+const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
+const parseYmd = s => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
+const dayDiff = (a, b) => Math.round((parseYmd(a) - parseYmd(b)) / 864e5); // a - b, in days
+const offsetDay = n => ymd(new Date(Date.now() + n * 864e5));
+const fmtShort = s => { const [y, m, d] = s.split('-'); return `${d}/${m}` + (y !== String(new Date().getFullYear()) ? '/' + y : ''); };
+const fmtTs = ts => fmtShort(ymd(new Date(ts)));
 const uid = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 function lsGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
 function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* ignore */ } }
 
+// Normalise a task from storage / Gist. Old data used "inbox" (now "backlog").
 function clean(t) {
   if (!t || t.id == null) return null;
+  const q = t.q === 'inbox' ? 'backlog' : (QN[t.q] ? t.q : 'backlog');
+  const from = t.doneFrom === 'inbox' ? 'backlog' : t.doneFrom;
   return {
     id: String(t.id),
     title: String(t.title || '').slice(0, 200),
-    q: QN[t.q] ? t.q : 'inbox',
+    detail: String(t.detail || '').slice(0, 2000),
+    q,
     done: !!t.done,
     doneAt: +t.doneAt || null,
-    due: /^\d{4}-\d{2}-\d{2}$/.test(t.due || '') ? t.due : null,
+    doneFrom: QN[from] ? from : null,
+    start: isDate(t.start) ? t.start : null,
+    due: isDate(t.due) ? t.due : null,
     created: +t.created || 0,
     updatedAt: +t.updatedAt || 0,
     deleted: !!t.deleted,
@@ -65,9 +79,12 @@ function patch(id, o) {
   if (!t) return;
   mutate(() => Object.assign(t, o, { updatedAt: Date.now() }));
 }
-function addTask(title, q, due) {
+function addTask(f) {
   const now = Date.now();
-  mutate(() => D.tasks.push({ id: uid(), title, q, done: false, doneAt: null, due: due || null, created: now, updatedAt: now, deleted: false }));
+  mutate(() => D.tasks.push({
+    id: uid(), title: f.title, detail: f.detail || '', q: f.q, done: false, doneAt: null, doneFrom: null,
+    start: null, due: f.due || null, created: now, updatedAt: now, deleted: false,
+  }));
 }
 
 /* ---------- toast ---------- */
@@ -81,30 +98,51 @@ function toast(msg, undo) {
   toastT = setTimeout(() => { el.hidden = true; }, undo ? 5000 : 2200);
 }
 
-/* ---------- views ---------- */
-function dueBadge(t) {
-  if (!t.due) return '';
-  const today = ymd(new Date());
-  const tom = ymd(new Date(Date.now() + 864e5));
+/* ---------- deadline / timeline ---------- */
+function dueInfo(t) {
+  if (!t.due) return null;
+  const n = dayDiff(t.due, today());
   let txt, cls = '';
-  if (t.due === today) { txt = 'Today'; cls = 'soon'; }
-  else if (t.due === tom) { txt = 'Tomorrow'; cls = 'soon'; }
-  else {
-    const [y, m, d] = t.due.split('-');
-    txt = `${d}/${m}` + (y !== String(new Date().getFullYear()) ? '/' + y : '');
-  }
-  if (t.due < today && !t.done) cls = 'late';
-  return `<span class="due ${cls}">${txt}</span>`;
+  if (n < 0) { txt = `${-n} day${-n > 1 ? 's' : ''} overdue`; cls = 'late'; }
+  else if (n === 0) { txt = 'Due today'; cls = 'soon'; }
+  else if (n === 1) { txt = 'Due tomorrow'; cls = 'soon'; }
+  else if (n <= 14) txt = `${n} days left`;
+  else txt = 'Due ' + fmtShort(t.due);
+  return { txt, cls, n };
+}
+function timelineHTML(t) {
+  if (!t.due || t.done) return '';
+  const info = dueInfo(t);
+  const startStr = t.start || ymd(new Date(t.created || Date.now()));
+  const total = Math.max(1, dayDiff(t.due, startStr));
+  const elapsed = dayDiff(today(), startStr);
+  const pct = Math.max(0, Math.min(100, Math.round(elapsed / total * 100)));
+  return `<div class="tl ${info.cls}"><div class="tl-t"><span>${fmtShort(startStr)} → ${fmtShort(t.due)}</span><b>${info.txt}</b></div><div class="track"><i style="width:${pct}%"></i></div></div>`;
+}
+function doneText(t) {
+  return (t.doneAt ? fmtTs(t.doneAt) : '') + (t.doneFrom ? ' · from ' + QN[t.doneFrom] : '');
+}
+const doneInfo = t => t.done ? `<div class="doneinfo">Done ${esc(doneText(t))}</div>` : '';
+function dueCell(t) {
+  if (!t.due) return '<span class="muted">—</span>';
+  if (t.done) return `<span class="due">${fmtShort(t.due)}</span>`;
+  const i = dueInfo(t);
+  return `<span class="due ${i.cls}">${i.txt}</span>`;
 }
 const cmpDue = (a, b) => {
   const x = a.due || '9999', y = b.due || '9999';
   return x < y ? -1 : x > y ? 1 : a.created - b.created;
 };
+const firstLine = d => (d.split('\n').find(l => l.trim()) || '').trim();
 
+/* ---------- views ---------- */
 function taskHTML(t) {
+  const hasD = !!t.detail;
   return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}">
     <button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button>
-    <div class="tt" data-act="edit"><span class="tx">${esc(t.title)}</span>${t.due ? '<br>' + dueBadge(t) : ''}</div>
+    <div class="tt" data-act="edit"><span class="tx">${esc(t.title)}</span>${hasD ? NOTE : ''}
+      ${hasD ? `<div class="prev">${esc(firstLine(t.detail))}</div>` : ''}
+      ${t.done ? doneInfo(t) : timelineHTML(t)}</div>
     ${t.done ? '' : `<span class="handle" data-drag aria-label="Drag to move">${HANDLE}</span>`}
   </div>`;
 }
@@ -113,10 +151,10 @@ function matrixHTML() {
   const L = live();
   const act = L.filter(t => !t.done);
   const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
-  const inbox = act.filter(t => t.q === 'inbox').sort((a, b) => a.created - b.created);
-  let h = `<section class="inbox-sec inbox" data-drop="inbox">
-    <div class="sec-h"><div class="nm"><b>Inbox</b><small>Unsorted — drag into a quadrant</small></div><span class="cnt">${inbox.length}</span></div>
-    ${inbox.length ? inbox.map(taskHTML).join('') : '<p class="empty">Inbox is empty. Tap + to add a task.</p>'}
+  const backlog = act.filter(t => t.q === 'backlog').sort((a, b) => a.created - b.created);
+  let h = `<section class="backlog-sec backlog" data-drop="backlog">
+    <div class="sec-h"><div class="nm"><b>Backlog</b><small>Chưa phân loại — kéo vào ô bên dưới</small></div><span class="cnt">${backlog.length}</span></div>
+    ${backlog.length ? backlog.map(taskHTML).join('') : '<p class="empty">Backlog is empty. Tap + to add a task.</p>'}
   </section><div class="matrix">`;
   for (const q of Q) {
     const items = act.filter(t => t.q === q.id).sort(cmpDue);
@@ -139,7 +177,7 @@ function tableBodyHTML() {
   if (C.status === 'active') L = L.filter(t => !t.done);
   else if (C.status === 'done') L = L.filter(t => t.done);
   if (C.fq !== 'all') L = L.filter(t => t.q === C.fq);
-  if (search) { const s = search.toLowerCase(); L = L.filter(t => t.title.toLowerCase().includes(s)); }
+  if (search) { const s = search.toLowerCase(); L = L.filter(t => t.title.toLowerCase().includes(s) || t.detail.toLowerCase().includes(s)); }
   const sorters = {
     q: (a, b) => QORD[a.q] - QORD[b.q] || cmpDue(a, b),
     due: cmpDue,
@@ -149,18 +187,19 @@ function tableBodyHTML() {
   L.sort(sorters[C.sort] || sorters.q);
   if (!L.length) return '<p class="empty big">No tasks here.</p>';
   const opts = cur => ORDER.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${QN[k]}</option>`).join('');
-  return `<table><thead><tr><th></th><th>Task</th><th>Quadrant</th><th class="wide">Due</th></tr></thead><tbody>
+  return `<table><thead><tr><th></th><th>Task</th><th>Quadrant</th><th class="wide">Deadline</th><th class="wide">Done</th></tr></thead><tbody>
     ${L.map(t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
       <td><button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button></td>
-      <td class="ttl" data-act="edit"><span class="tx">${esc(t.title)}</span><span class="nw">${t.due ? '<br>' + dueBadge(t) : ''}</span></td>
+      <td class="ttl" data-act="edit"><span class="tx">${esc(t.title)}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span></td>
       <td><select class="qsel">${opts(t.q)}</select></td>
-      <td class="wide">${dueBadge(t)}</td></tr>`).join('')}
+      <td class="wide">${dueCell(t)}</td>
+      <td class="wide">${t.done ? esc(doneText(t)) : '<span class="muted">—</span>'}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
 function tableHTML() {
   const sc = (v, l) => `<button class="chip ${C.status === v ? 'on' : ''}" data-act="status" data-v="${v}">${l}</button>`;
-  const sorts = [['q', 'Sort: Quadrant'], ['due', 'Sort: Due date'], ['new', 'Sort: Newest'], ['title', 'Sort: A–Z']];
+  const sorts = [['q', 'Sort: Quadrant'], ['due', 'Sort: Deadline'], ['new', 'Sort: Newest'], ['title', 'Sort: A–Z']];
   return `<div class="bar">
     <div class="chips">${sc('active', 'Active')}${sc('done', 'Done')}${sc('all', 'All')}</div>
     <select id="t-q"><option value="all">All quadrants</option>${ORDER.map(k => `<option value="${k}" ${C.fq === k ? 'selected' : ''}>${QN[k]}</option>`).join('')}</select>
@@ -205,21 +244,36 @@ function bindChips(cb) {
   const bs = document.querySelectorAll('#panel [data-chip]');
   bs.forEach(b => { b.onclick = () => { bs.forEach(x => x.classList.toggle('on', x === b)); cb(b.dataset.chip); }; });
 }
+// date input, optionally with quick buttons (Today / Tomorrow / +1 week / Clear)
+function dateField(id, val, quick) {
+  return `<div class="dfield"><input id="${id}" type="date" value="${val || ''}">${quick
+    ? '<div class="chips qd"><button type="button" class="chip" data-qd="0">Today</button><button type="button" class="chip" data-qd="1">Tomorrow</button><button type="button" class="chip" data-qd="7">+1 week</button><button type="button" class="chip" data-qd="">Clear</button></div>'
+    : ''}</div>`;
+}
+function bindQuickDates() {
+  document.querySelectorAll('#panel [data-qd]').forEach(b => {
+    b.onclick = () => { b.closest('.dfield').querySelector('input').value = b.dataset.qd === '' ? '' : offsetDay(Number(b.dataset.qd)); };
+  });
+}
 
 function openAdd(preQ) {
-  let q = preQ || 'inbox';
+  let q = preQ || 'backlog';
   openSheet(`<div class="sh"><b>New task</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     <input id="f-title" type="text" placeholder="What needs doing?" maxlength="200" autocomplete="off" enterkeyhint="done">
+    <button type="button" class="linkbtn" id="f-more">+ Add detail</button>
+    <textarea id="f-detail" rows="3" maxlength="2000" placeholder="Detail (optional)" hidden></textarea>
     <div class="lbl">Put in</div>${chips(q)}
-    <div class="lbl">Due (optional)</div><input id="f-due" type="date">
+    <div class="lbl">Deadline (optional)</div>${dateField('f-due', '', true)}
     <div class="acts"><span id="f-msg" class="msg"></span><button class="btn primary" id="f-add">Add</button></div>`, () => {
-    const ti = $('#f-title');
+    const ti = $('#f-title'), de = $('#f-detail');
     bindChips(v => { q = v; });
+    bindQuickDates();
+    $('#f-more').onclick = () => { de.hidden = !de.hidden; $('#f-more').textContent = de.hidden ? '+ Add detail' : '− Hide detail'; if (!de.hidden) de.focus(); };
     const go = () => {
       const v = ti.value.trim();
       if (!v) { ti.focus(); return; }
-      addTask(v, q, $('#f-due').value || null);
-      ti.value = ''; $('#f-due').value = '';
+      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null });
+      ti.value = ''; de.value = ''; de.hidden = true; $('#f-more').textContent = '+ Add detail'; $('#f-due').value = '';
       $('#f-msg').textContent = 'Added ✓ → ' + QN[q];
       ti.focus();
     };
@@ -235,14 +289,19 @@ function openEdit(id) {
   let q = t.q;
   openSheet(`<div class="sh"><b>Edit task</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     <input id="e-title" type="text" value="${esc(t.title)}" maxlength="200" autocomplete="off">
+    <div class="lbl">Detail</div>
+    <textarea id="e-detail" rows="4" maxlength="2000" placeholder="Detail (optional)">${esc(t.detail)}</textarea>
     <div class="lbl">Move to</div>${chips(q)}
-    <div class="lbl">Due</div><input id="e-due" type="date" value="${t.due || ''}">
+    <div class="lbl">Start date (optional — default: the day it was created)</div>${dateField('e-start', t.start, false)}
+    <div class="lbl">Deadline</div>${dateField('e-due', t.due, true)}
+    ${t.done ? `<p class="hint">Done ${esc(doneText(t))}</p>` : ''}
     <div class="acts"><button class="btn danger" id="e-del">Delete</button><button class="btn primary" id="e-save">Save</button></div>`, () => {
     bindChips(v => { q = v; });
+    bindQuickDates();
     const save = () => {
       const title = $('#e-title').value.trim();
       if (!title) return;
-      patch(id, { title, q, due: $('#e-due').value || null });
+      patch(id, { title, detail: $('#e-detail').value.trim(), q, start: $('#e-start').value || null, due: $('#e-due').value || null });
       closeSheet();
     };
     $('#e-save').onclick = save;
@@ -289,7 +348,7 @@ function openSettings() {
       setC({ token: tok });
       msg.textContent = 'Creating Gist…';
       try {
-        const g = await gh('/gists', { method: 'POST', body: JSON.stringify({ description: 'Eisenhower Matrix data', public: false, files: { [FILE]: { content: serialize() } } }) });
+        const g = await gh('/gists', { method: 'POST', body: JSON.stringify({ description: 'Priority Matrix data', public: false, files: { [FILE]: { content: serialize() } } }) });
         setC({ gist: g.id });
         $('#s-gist').value = g.id;
         msg.textContent = 'Gist created. Syncing…';
@@ -304,7 +363,7 @@ function openSettings() {
 
 /* ---------- sync (GitHub Gist) ---------- */
 function serialize() {
-  return JSON.stringify({ version: 1, updated: new Date().toISOString(), tasks: [...D.tasks].sort((a, b) => a.created - b.created) }, null, 1);
+  return JSON.stringify({ version: 2, updated: new Date().toISOString(), tasks: [...D.tasks].sort((a, b) => a.created - b.created) }, null, 1);
 }
 async function gh(path, opts = {}) {
   const r = await fetch('https://api.github.com' + path, Object.assign({}, opts, {
@@ -342,7 +401,7 @@ function schedulePush() {
   pushTimer = setTimeout(sync, 2000);
   updateSyncUI();
 }
-async function sync(force) {
+async function sync() {
   if (!configured()) return;
   if (syncing) { again = true; return; }
   clearTimeout(pushTimer);
@@ -394,9 +453,14 @@ function updateSyncUI() {
 function toggle(id) {
   const t = find(id);
   if (!t) return;
-  const was = t.done;
-  patch(id, { done: !was, doneAt: was ? null : Date.now() });
-  toast(was ? 'Task restored' : 'Task completed ✓', () => patch(id, { done: was, doneAt: was ? Date.now() : null }));
+  if (t.done) {
+    const oldAt = t.doneAt, oldFrom = t.doneFrom;
+    patch(id, { done: false, doneAt: null, doneFrom: null });
+    toast('Task restored', () => patch(id, { done: true, doneAt: oldAt, doneFrom: oldFrom }));
+  } else {
+    patch(id, { done: true, doneAt: Date.now(), doneFrom: t.q });
+    toast('Task completed ✓', () => patch(id, { done: false, doneAt: null, doneFrom: null }));
+  }
 }
 
 document.addEventListener('click', e => {
@@ -411,7 +475,7 @@ document.addEventListener('click', e => {
     case 'add': openAdd(); break;
     case 'addq': openAdd(a.dataset.q); break;
     case 'settings': openSettings(); break;
-    case 'sync': configured() ? sync(true) : openSettings(); break;
+    case 'sync': configured() ? sync() : openSettings(); break;
     case 'close': closeSheet(); break;
     case 'toggledone': setC({ showDone: !C.showDone }); render(); break;
     case 'status': setC({ status: a.dataset.v }); render(); break;

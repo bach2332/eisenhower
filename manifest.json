@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "Eisenhower Matrix",
-  "short_name": "Matrix",
-  "description": "Prioritise tasks with the Eisenhower Matrix. Data synced via GitHub Gist.",
+  "name": "Priority Matrix",
+  "short_name": "Priority",
+  "description": "Prioritise tasks in 4 quadrants (Now / Next / Hand off / Maybe). Data synced via GitHub Gist.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

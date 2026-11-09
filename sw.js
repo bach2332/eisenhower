@@ -1,5 +1,5 @@
 // Network-first service worker: always tries the latest files, falls back to cache when offline.
-const CACHE = 'eisenhower-v1';
+const CACHE = 'priority-matrix-v2';
 const ASSETS = ['./', './index.html', './app.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
