@@ -134,6 +134,8 @@ const cmpDue = (a, b) => {
   const x = a.due || '9999', y = b.due || '9999';
   return x < y ? -1 : x > y ? 1 : a.created - b.created;
 };
+// tasks that have a deadline always sit above those without one
+const cmpTop = (a, b) => (b.due ? 1 : 0) - (a.due ? 1 : 0);
 // manual order: tasks with an order come first (ascending); the rest keep their default sort
 const cmpOrder = (a, b) => {
   const x = a.order, y = b.order;
@@ -158,13 +160,13 @@ function matrixHTML() {
   const L = live();
   const act = L.filter(t => !t.done);
   const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
-  const backlog = act.filter(t => t.q === 'backlog').sort((a, b) => cmpOrder(a, b) || a.created - b.created);
+  const backlog = act.filter(t => t.q === 'backlog').sort((a, b) => cmpTop(a, b) || cmpOrder(a, b) || cmpDue(a, b));
   let h = `<section class="backlog-sec backlog" data-drop="backlog">
     <div class="sec-h"><div class="nm"><b>Backlog</b><small>Unsorted — hold ⠿ for 1 s, then drag to a quadrant</small></div><span class="cnt">${backlog.length}</span></div>
     ${backlog.length ? backlog.map(taskHTML).join('') : '<p class="empty">Backlog is empty. Tap + to add a task.</p>'}
   </section><div class="matrix">`;
   for (const q of Q) {
-    const items = act.filter(t => t.q === q.id).sort((a, b) => cmpOrder(a, b) || cmpDue(a, b));
+    const items = act.filter(t => t.q === q.id).sort((a, b) => cmpTop(a, b) || cmpOrder(a, b) || cmpDue(a, b));
     h += `<section class="quad ${q.id}" data-drop="${q.id}">
       <div class="sec-h"><div class="nm"><b>${q.name}</b><small>${q.sub}</small></div><span class="cnt">${items.length}</span>
         <button class="addq" data-act="addq" data-q="${q.id}" aria-label="Add to ${q.name}">${PLUS}</button></div>
@@ -186,7 +188,7 @@ function tableBodyHTML() {
   if (C.fq !== 'all') L = L.filter(t => t.q === C.fq);
   if (search) { const s = search.toLowerCase(); L = L.filter(t => t.title.toLowerCase().includes(s) || t.detail.toLowerCase().includes(s)); }
   const sorters = {
-    q: (a, b) => QORD[a.q] - QORD[b.q] || cmpOrder(a, b) || cmpDue(a, b),
+    q: (a, b) => QORD[a.q] - QORD[b.q] || cmpTop(a, b) || cmpOrder(a, b) || cmpDue(a, b),
     due: cmpDue,
     new: (a, b) => b.created - a.created,
     title: (a, b) => a.title.localeCompare(b.title),
