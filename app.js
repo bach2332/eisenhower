@@ -60,7 +60,7 @@ let D = Object.assign({ tasks: [], dirty: false, rev: 0, lastSync: 0 }, lsGet(K_
 D.tasks = (D.tasks || []).map(clean).filter(Boolean);
 let C = Object.assign({ token: '', gist: '', view: 'matrix', showDone: false, status: 'active', fq: 'all', sort: 'q' }, lsGet(K_CFG, {}));
 let search = '';
-let drag = null, pendingRender = false;
+let drag = null, hold = null, pendingRender = false;
 let syncing = false, again = false, lastErr = '', pushTimer = null, installEvt = null;
 
 const saveData = () => lsSet(K_DATA, { tasks: D.tasks, dirty: D.dirty, rev: D.rev, lastSync: D.lastSync });
@@ -153,7 +153,7 @@ function matrixHTML() {
   const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   const backlog = act.filter(t => t.q === 'backlog').sort((a, b) => a.created - b.created);
   let h = `<section class="backlog-sec backlog" data-drop="backlog">
-    <div class="sec-h"><div class="nm"><b>Backlog</b><small>Chưa phân loại — kéo vào ô bên dưới</small></div><span class="cnt">${backlog.length}</span></div>
+    <div class="sec-h"><div class="nm"><b>Backlog</b><small>Chưa phân loại — giữ ⠿ 1 giây rồi kéo vào ô</small></div><span class="cnt">${backlog.length}</span></div>
     ${backlog.length ? backlog.map(taskHTML).join('') : '<p class="empty">Backlog is empty. Tap + to add a task.</p>'}
   </section><div class="matrix">`;
   for (const q of Q) {
@@ -209,7 +209,7 @@ function tableHTML() {
 }
 
 function render() {
-  if (drag) { pendingRender = true; return; }
+  if (drag || hold) { pendingRender = true; return; }
   pendingRender = false;
   const y = window.scrollY;
   $('#app').innerHTML = C.view === 'table' ? tableHTML() : matrixHTML();
@@ -515,26 +515,51 @@ function tick() {
   }
   drag.raf = requestAnimationFrame(tick);
 }
-document.addEventListener('pointerdown', e => {
-  const h = e.target.closest('[data-drag]');
-  if (!h || drag) return;
-  const row = h.closest('.task');
-  if (!row) return;
-  e.preventDefault();
-  const r = row.getBoundingClientRect();
-  const ghost = row.cloneNode(true);
+// Dragging only starts after the handle is held for HOLD_MS without moving more than HOLD_SLOP px.
+const HOLD_MS = 1000, HOLD_SLOP = 12;
+function cancelHold() {
+  if (!hold) return;
+  clearTimeout(hold.timer);
+  hold.row.classList.remove('holding');
+  hold = null;
+  if (pendingRender) render();
+}
+function beginDrag() {
+  const hd = hold;
+  hold = null;
+  if (!hd) return;
+  hd.row.classList.remove('holding');
+  if (!hd.row.isConnected) { if (pendingRender) render(); return; }
+  const r = hd.row.getBoundingClientRect();
+  const ghost = hd.row.cloneNode(true);
   ghost.classList.add('ghost');
   ghost.removeAttribute('data-id');
   ghost.style.width = r.width + 'px';
   document.body.appendChild(ghost);
-  drag = { id: row.dataset.id, ghost, row, dx: e.clientX - r.left, dy: e.clientY - r.top, pid: e.pointerId, x: e.clientX, y: e.clientY, over: null, raf: 0 };
-  row.classList.add('lifting');
+  drag = { id: hd.row.dataset.id, ghost, row: hd.row, dx: hd.x - r.left, dy: hd.y - r.top, pid: hd.pid, x: hd.x, y: hd.y, over: null, raf: 0 };
+  hd.row.classList.add('lifting');
   document.body.classList.add('dragging');
-  try { h.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+  try { if (navigator.vibrate) navigator.vibrate(30); } catch (_) { /* ignore */ }
   moveGhost();
   drag.raf = requestAnimationFrame(tick);
+}
+document.addEventListener('pointerdown', e => {
+  const h = e.target.closest('[data-drag]');
+  if (!h || drag || hold) return;
+  const row = h.closest('.task');
+  if (!row) return;
+  e.preventDefault();
+  hold = { pid: e.pointerId, row, sx: e.clientX, sy: e.clientY, x: e.clientX, y: e.clientY, timer: setTimeout(beginDrag, HOLD_MS) };
+  row.classList.add('holding');
+  try { h.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
 });
+document.addEventListener('contextmenu', e => { if (e.target.closest && e.target.closest('[data-drag]')) e.preventDefault(); });
 document.addEventListener('pointermove', e => {
+  if (hold && e.pointerId === hold.pid) {
+    hold.x = e.clientX; hold.y = e.clientY;
+    if (Math.hypot(hold.x - hold.sx, hold.y - hold.sy) > HOLD_SLOP) cancelHold();
+    return;
+  }
   if (!drag || e.pointerId !== drag.pid) return;
   drag.x = e.clientX; drag.y = e.clientY;
   moveGhost();
@@ -557,8 +582,8 @@ function endDrag(e, cancel) {
   }
   if (pendingRender) render();
 }
-document.addEventListener('pointerup', e => endDrag(e, false));
-document.addEventListener('pointercancel', e => endDrag(e, true));
+document.addEventListener('pointerup', e => { if (hold && e.pointerId === hold.pid) cancelHold(); endDrag(e, false); });
+document.addEventListener('pointercancel', e => { if (hold && e.pointerId === hold.pid) cancelHold(); endDrag(e, true); });
 
 /* ---------- lifecycle ---------- */
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; });
