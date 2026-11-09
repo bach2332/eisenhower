@@ -43,6 +43,7 @@ function clean(t) {
     id: String(t.id),
     title: String(t.title || '').slice(0, 200),
     detail: String(t.detail || '').slice(0, 2000),
+    order: t.order != null && Number.isFinite(+t.order) ? +t.order : null,
     q,
     done: !!t.done,
     doneAt: +t.doneAt || null,
@@ -133,6 +134,12 @@ const cmpDue = (a, b) => {
   const x = a.due || '9999', y = b.due || '9999';
   return x < y ? -1 : x > y ? 1 : a.created - b.created;
 };
+// manual order: tasks with an order come first (ascending); the rest keep their default sort
+const cmpOrder = (a, b) => {
+  const x = a.order, y = b.order;
+  if (x != null && y != null) return x - y;
+  return x != null ? -1 : y != null ? 1 : 0;
+};
 const firstLine = d => (d.split('\n').find(l => l.trim()) || '').trim();
 
 /* ---------- views ---------- */
@@ -151,13 +158,13 @@ function matrixHTML() {
   const L = live();
   const act = L.filter(t => !t.done);
   const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
-  const backlog = act.filter(t => t.q === 'backlog').sort((a, b) => a.created - b.created);
+  const backlog = act.filter(t => t.q === 'backlog').sort((a, b) => cmpOrder(a, b) || a.created - b.created);
   let h = `<section class="backlog-sec backlog" data-drop="backlog">
     <div class="sec-h"><div class="nm"><b>Backlog</b><small>Chưa phân loại — giữ ⠿ 1 giây rồi kéo vào ô</small></div><span class="cnt">${backlog.length}</span></div>
     ${backlog.length ? backlog.map(taskHTML).join('') : '<p class="empty">Backlog is empty. Tap + to add a task.</p>'}
   </section><div class="matrix">`;
   for (const q of Q) {
-    const items = act.filter(t => t.q === q.id).sort(cmpDue);
+    const items = act.filter(t => t.q === q.id).sort((a, b) => cmpOrder(a, b) || cmpDue(a, b));
     h += `<section class="quad ${q.id}" data-drop="${q.id}">
       <div class="sec-h"><div class="nm"><b>${q.name}</b><small>${q.sub}</small></div><span class="cnt">${items.length}</span>
         <button class="addq" data-act="addq" data-q="${q.id}" aria-label="Add to ${q.name}">${PLUS}</button></div>
@@ -179,7 +186,7 @@ function tableBodyHTML() {
   if (C.fq !== 'all') L = L.filter(t => t.q === C.fq);
   if (search) { const s = search.toLowerCase(); L = L.filter(t => t.title.toLowerCase().includes(s) || t.detail.toLowerCase().includes(s)); }
   const sorters = {
-    q: (a, b) => QORD[a.q] - QORD[b.q] || cmpDue(a, b),
+    q: (a, b) => QORD[a.q] - QORD[b.q] || cmpOrder(a, b) || cmpDue(a, b),
     due: cmpDue,
     new: (a, b) => b.created - a.created,
     title: (a, b) => a.title.localeCompare(b.title),
@@ -302,7 +309,7 @@ function openEdit(id) {
     const save = () => {
       const title = $('#e-title').value.trim();
       if (!title) return;
-      patch(id, { title, detail: $('#e-detail').value.trim(), q, start: $('#e-start').value || null, due: $('#e-due').value || null });
+      patch(id, { title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, start: $('#e-start').value || null, due: $('#e-due').value || null });
       closeSheet();
     };
     $('#e-save').onclick = save;
@@ -491,7 +498,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
-  if (t.matches && t.matches('.qsel')) patch(t.closest('[data-id]').dataset.id, { q: t.value });
+  if (t.matches && t.matches('.qsel')) patch(t.closest('[data-id]').dataset.id, { q: t.value, order: null });
   else if (t.id === 't-q') { setC({ fq: t.value }); render(); }
   else if (t.id === 't-sort') { setC({ sort: t.value }); render(); }
 });
@@ -500,6 +507,29 @@ document.addEventListener('input', e => {
 });
 
 /* ---------- drag & drop (pointer events: touch + mouse) ---------- */
+// Where would the dragged card land inside `box`? Returns the other cards (display order), the slot index and the card's own index.
+function dropSlot(box, y, id) {
+  const all = [...box.querySelectorAll('.task[data-id]')];
+  const els = all.filter(el => el.dataset.id !== id);
+  let i = 0;
+  for (const el of els) { const r = el.getBoundingClientRect(); if (y > r.top + r.height / 2) i++; else break; }
+  return { els, i, orig: all.findIndex(el => el.dataset.id === id) };
+}
+function clearMarks() {
+  document.querySelectorAll('.ins-before,.ins-after').forEach(el => el.classList.remove('ins-before', 'ins-after'));
+}
+// Put task `id` into `target` at slot `i` among `ids` (the other tasks there, in display order).
+function placeTask(id, target, ids, i) {
+  const t = find(id);
+  const list = ids.map(find).filter(Boolean);
+  const now = Date.now();
+  mutate(() => {
+    if (list.some(x => x.order == null)) list.forEach((x, k) => { x.order = (k + 1) * 1000; x.updatedAt = now; });
+    const p = list[i - 1], n = list[i];
+    t.order = p && n ? (p.order + n.order) / 2 : n ? n.order - 1000 : p ? p.order + 1000 : 1000;
+    t.q = target; t.updatedAt = now;
+  });
+}
 function moveGhost() {
   drag.ghost.style.transform = `translate(${drag.x - drag.dx}px,${drag.y - drag.dy}px)`;
 }
@@ -513,6 +543,17 @@ function tick() {
     if (drag.over) drag.over.classList.remove('over');
     if (t) t.classList.add('over');
     drag.over = t;
+  }
+  // insertion line + auto-scroll inside a quadrant that scrolls (landscape)
+  clearMarks();
+  if (t) {
+    const { els, i } = dropSlot(t, drag.y, drag.id);
+    if (els.length) (i < els.length ? els[i] : els[els.length - 1]).classList.add(i < els.length ? 'ins-before' : 'ins-after');
+    if (t.scrollHeight > t.clientHeight + 2) {
+      const r = t.getBoundingClientRect();
+      if (drag.y < r.top + 36) t.scrollTop -= 8;
+      else if (drag.y > r.bottom - 36) t.scrollTop += 8;
+    }
   }
   drag.raf = requestAnimationFrame(tick);
 }
@@ -574,12 +615,16 @@ function endDrag(e, cancel) {
   if (d.over) d.over.classList.remove('over');
   d.row.classList.remove('lifting');
   document.body.classList.remove('dragging');
+  clearMarks();
   const target = !cancel && d.over ? d.over.dataset.drop : null;
   const t = find(d.id);
-  if (target && t && target !== t.q) {
-    const prev = t.q;
-    patch(d.id, { q: target });
-    toast('Moved to ' + QN[target], () => patch(d.id, { q: prev }));
+  if (target && t) {
+    const { els, i, orig } = dropSlot(d.over, d.y, d.id);
+    if (target !== t.q || i !== orig) {
+      const prevQ = t.q, prevOrder = t.order == null ? null : t.order;
+      placeTask(d.id, target, els.map(el => el.dataset.id), i);
+      toast(target === prevQ ? 'Order changed' : 'Moved to ' + QN[target], () => patch(d.id, { q: prevQ, order: prevOrder }));
+    }
   }
   if (pendingRender) render();
 }
