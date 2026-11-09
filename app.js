@@ -3,10 +3,10 @@
 
 /* ---------- constants ---------- */
 const Q = [
-  { id: 'q1', name: 'Now',      sub: 'Gấp + quan trọng · làm ngay' },
-  { id: 'q2', name: 'Next',     sub: 'Quan trọng, chưa gấp · lên lịch' },
-  { id: 'q3', name: 'Hand off', sub: 'Gấp, ít quan trọng · giao người khác' },
-  { id: 'q4', name: 'Maybe',    sub: 'Chưa gấp, ít quan trọng · để sau hoặc bỏ' },
+  { id: 'q1', name: 'Now',      sub: 'Urgent + important · do it now' },
+  { id: 'q2', name: 'Next',     sub: 'Important, not urgent · schedule it' },
+  { id: 'q3', name: 'Hand off', sub: 'Urgent, less important · delegate' },
+  { id: 'q4', name: 'Maybe',    sub: 'Not urgent, less important · later or drop' },
 ];
 const QN = { backlog: 'Backlog', q1: 'Now', q2: 'Next', q3: 'Hand off', q4: 'Maybe' };
 const ORDER = ['backlog', 'q1', 'q2', 'q3', 'q4'];
@@ -160,7 +160,7 @@ function matrixHTML() {
   const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   const backlog = act.filter(t => t.q === 'backlog').sort((a, b) => cmpOrder(a, b) || a.created - b.created);
   let h = `<section class="backlog-sec backlog" data-drop="backlog">
-    <div class="sec-h"><div class="nm"><b>Backlog</b><small>Chưa phân loại — giữ ⠿ 1 giây rồi kéo vào ô</small></div><span class="cnt">${backlog.length}</span></div>
+    <div class="sec-h"><div class="nm"><b>Backlog</b><small>Unsorted — hold ⠿ for 1 s, then drag to a quadrant</small></div><span class="cnt">${backlog.length}</span></div>
     ${backlog.length ? backlog.map(taskHTML).join('') : '<p class="empty">Backlog is empty. Tap + to add a task.</p>'}
   </section><div class="matrix">`;
   for (const q of Q) {
