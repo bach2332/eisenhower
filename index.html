@@ -140,6 +140,29 @@ tr.row td:first-child{border-left:4px solid var(--c);width:44px;padding-left:8px
 
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom));z-index:60;background:#111827;color:#fff;padding:10px 14px;border-radius:12px;display:flex;gap:14px;align-items:center;max-width:92vw;box-shadow:0 6px 20px #0006}
 #toast button{border:0;background:none;color:#93c5fd;font-weight:700;padding:0}
+/* phone in landscape: Backlog on the left, 2x2 matrix fills the screen (no page scroll) */
+@media (orientation:landscape) and (max-height:520px){
+  main{max-width:none;padding:6px 8px 8px}
+  .top{padding-top:calc(4px + env(safe-area-inset-top));padding-bottom:4px}
+  .ico{width:34px;height:34px}
+  .ver{padding-bottom:70px}
+  .fab{width:48px;height:48px;right:12px;bottom:calc(10px + env(safe-area-inset-bottom))}
+  #app.v-matrix{display:grid;grid-template-columns:210px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;gap:8px;height:calc(100vh - 58px - env(safe-area-inset-top));height:calc(100dvh - 58px - env(safe-area-inset-top))}
+  #app.v-matrix .backlog-sec{grid-column:1;grid-row:1;min-height:0;overflow:auto}
+  #app.v-matrix .matrix{grid-column:2;grid-row:1;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;margin-top:0;gap:8px;min-height:0}
+  #app.v-matrix .donesec{grid-column:1 / -1;grid-row:2;margin-top:0;max-height:38vh;overflow:auto}
+  #app.v-matrix .quad{min-height:0;overflow:auto;padding:6px 8px 8px}
+  #app.v-matrix .quad.q4 .list{padding-bottom:52px}
+  .quad .list{min-height:0}
+  .sec-h small{display:none}
+  .task{padding:5px 4px 5px 8px;margin-top:5px;gap:8px}
+  .chk{width:26px;height:26px}
+  .handle{width:32px;height:32px}
+  .tl{margin-top:2px}
+  .tl .track,.prev{display:none}
+  .tl-t{font-size:11px}
+  .empty{margin:8px 0 2px;font-size:13px}
+}
 </style>
 </head>
 <body>

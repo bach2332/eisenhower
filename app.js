@@ -213,6 +213,7 @@ function render() {
   pendingRender = false;
   const y = window.scrollY;
   $('#app').innerHTML = C.view === 'table' ? tableHTML() : matrixHTML();
+  $('#app').className = 'v-' + C.view;
   document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.v === C.view));
   updateSyncUI();
   if (window.scrollY !== y) window.scrollTo(0, y);
