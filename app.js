@@ -90,8 +90,9 @@ function addTask(f) {
 
 /* ---------- toast ---------- */
 let toastT;
-function toast(msg, undo) {
+function toast(msg, undo, ok) { // ok: green success notice shown at the top (stays visible above the keyboard)
   const el = $('#toast');
+  el.className = ok ? 'top ok' : '';
   el.innerHTML = `<span>${esc(msg)}</span>` + (undo ? '<button id="t-undo">Undo</button>' : '');
   el.hidden = false;
   if (undo) $('#t-undo').onclick = () => { undo(); el.hidden = true; };
@@ -275,8 +276,14 @@ function dateField(id, val, quick) {
     : ''}</div>`;
 }
 function bindQuickDates() {
-  document.querySelectorAll('#panel [data-qd]').forEach(b => {
-    b.onclick = () => { b.closest('.dfield').querySelector('input').value = b.dataset.qd === '' ? '' : offsetDay(Number(b.dataset.qd)); };
+  document.querySelectorAll('#panel .dfield').forEach(f => {
+    const inp = f.querySelector('input'), bs = f.querySelectorAll('[data-qd]');
+    // highlight the quick button whose date is currently selected (also when it was picked by hand)
+    const sync = () => bs.forEach(b => b.classList.toggle('on', b.dataset.qd !== '' && inp.value === offsetDay(Number(b.dataset.qd))));
+    bs.forEach(b => { b.onclick = () => { inp.value = b.dataset.qd === '' ? '' : offsetDay(Number(b.dataset.qd)); sync(); }; });
+    inp.addEventListener('input', sync);
+    inp.addEventListener('change', sync);
+    sync();
   });
 }
 
@@ -299,7 +306,9 @@ function openAdd(preQ) {
       if (!v) { ti.focus(); return; }
       addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null });
       ti.value = ''; de.value = ''; de.hidden = true; $('#f-more').textContent = '+ Add detail'; $('#f-due').value = '';
+      $('#f-due').dispatchEvent(new Event('input', { bubbles: true }));
       $('#f-msg').textContent = 'Added ✓ → ' + QN[q];
+      toast(`✓ Task added to ${QN[q]}: ${v.length > 28 ? v.slice(0, 28) + '…' : v}`, null, true);
       ti.focus();
     };
     $('#f-add').onclick = go;

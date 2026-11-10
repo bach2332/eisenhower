@@ -142,6 +142,9 @@ tr.row td:first-child{border-left:4px solid var(--c);width:44px;padding-left:8px
 .hint{font-size:13px;color:var(--muted);margin:6px 0 0}
 
 #toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(92px + env(safe-area-inset-bottom));z-index:60;background:#111827;color:#fff;padding:10px 14px;border-radius:12px;display:flex;gap:14px;align-items:center;max-width:92vw;box-shadow:0 6px 20px #0006}
+#toast{width:max-content}
+#toast.top{bottom:auto;top:calc(64px + env(safe-area-inset-top))}
+#toast.ok{background:#166534;font-weight:600}
 #toast button{border:0;background:none;color:#93c5fd;font-weight:700;padding:0}
 /* phone in landscape: Backlog on the left, 2x2 matrix fills the screen (no page scroll) */
 @media (orientation:landscape) and (max-height:520px){
