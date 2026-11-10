@@ -84,6 +84,9 @@ main{max-width:1100px;margin:0 auto;padding:12px 12px 24px}
 .tl{margin-top:5px}
 .tl-t{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted)}
 .tl-t b{font-weight:600;white-space:nowrap}
+.bell{display:inline-block;margin-right:3px;transform-origin:50% 8%;animation:ring 1.8s ease-in-out infinite}
+@keyframes ring{0%,40%,100%{transform:rotate(0)}4%{transform:rotate(18deg)}9%{transform:rotate(-16deg)}14%{transform:rotate(13deg)}19%{transform:rotate(-10deg)}24%{transform:rotate(7deg)}29%{transform:rotate(-4deg)}34%{transform:rotate(2deg)}}
+@media (prefers-reduced-motion:reduce){.bell{animation:none}}
 .track{height:4px;border-radius:2px;background:var(--line);margin-top:3px;overflow:hidden}
 .track i{display:block;height:100%;background:var(--accent);border-radius:2px}
 .tl.soon .tl-t b{color:var(--q3)}.tl.soon .track i{background:var(--q3)}

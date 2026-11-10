@@ -112,6 +112,8 @@ function dueInfo(t) {
   else txt = 'Due ' + fmtShort(t.due);
   return { txt, cls, n };
 }
+// ringing bell shown on tasks that are due today
+const BELL = '<span class="bell" aria-hidden="true">🔔</span>';
 function timelineHTML(t) {
   if (!t.due || t.done) return '';
   const info = dueInfo(t);
@@ -119,7 +121,7 @@ function timelineHTML(t) {
   const total = Math.max(1, dayDiff(t.due, startStr));
   const elapsed = dayDiff(today(), startStr);
   const pct = Math.max(0, Math.min(100, Math.round(elapsed / total * 100)));
-  return `<div class="tl ${info.cls}"><div class="tl-t"><span>${fmtShort(startStr)} → ${fmtShort(t.due)}</span><b>${info.txt}</b></div><div class="track"><i style="width:${pct}%"></i></div></div>`;
+  return `<div class="tl ${info.cls}"><div class="tl-t"><span>${fmtShort(startStr)} → ${fmtShort(t.due)}</span><b>${info.n === 0 ? BELL : ''}${info.txt}</b></div><div class="track"><i style="width:${pct}%"></i></div></div>`;
 }
 function doneText(t) {
   return (t.doneAt ? fmtTs(t.doneAt) : '') + (t.doneFrom ? ' · from ' + QN[t.doneFrom] : '');
@@ -129,7 +131,7 @@ function dueCell(t) {
   if (!t.due) return '<span class="muted">—</span>';
   if (t.done) return `<span class="due">${fmtShort(t.due)}</span>`;
   const i = dueInfo(t);
-  return `<span class="due ${i.cls}">${i.txt}</span>`;
+  return `<span class="due ${i.cls}">${i.n === 0 ? BELL : ''}${i.txt}</span>`;
 }
 const cmpDue = (a, b) => {
   const x = a.due || '9999', y = b.due || '9999';
