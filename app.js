@@ -167,13 +167,13 @@ function matrixHTML() {
   const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   const backlog = act.filter(t => t.q === 'backlog').sort(cmpList);
   let h = `<section class="backlog-sec backlog" data-drop="backlog">
-    <div class="sec-h"><div class="nm"><b>Backlog</b><small>Unsorted — hold ⠿ for 0.5 s, then drag to a quadrant</small></div><span class="cnt">${backlog.length}</span></div>
+    <div class="sec-h"><div class="nm"><b>Backlog</b><span class="cnt">${backlog.length}</span><small>Unsorted — hold ⠿ for 0.5 s, then drag to a quadrant</small></div></div>
     ${backlog.length ? backlog.map(taskHTML).join('') : '<p class="empty">Backlog is empty. Tap + to add a task.</p>'}
   </section><div class="matrix">`;
   for (const q of Q) {
     const items = act.filter(t => t.q === q.id).sort(cmpList);
     h += `<section class="quad ${q.id}" data-drop="${q.id}">
-      <div class="sec-h"><div class="nm"><b>${q.name}</b><small>${q.sub}</small></div><span class="cnt">${items.length}</span>
+      <div class="sec-h"><div class="nm"><b>${q.name}</b><span class="cnt">${items.length}</span><small>${q.sub}</small></div>
         <button class="addq" data-act="addq" data-q="${q.id}" aria-label="Add to ${q.name}">${PLUS}</button></div>
       <div class="list">${items.length ? items.map(taskHTML).join('') : '<p class="empty">Drop tasks here</p>'}</div>
     </section>`;
