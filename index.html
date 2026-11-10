@@ -217,6 +217,24 @@ body:has(#app.v-matrix) .ver{padding:6px 84px calc(6px + env(safe-area-inset-bot
   #app.v-matrix .tl-t{font-size:11px}
   #app.v-matrix .empty{margin:8px 0 2px;font-size:13px}
 }
+/* tablet / desktop: bigger text, one-line cards, timeline collapsed to the status label */
+@media (min-width:700px) and (min-height:521px){
+  main{max-width:none;padding:12px 20px 8px}
+  #app.v-matrix{max-height:none}
+  #app.v-matrix .tx{font-size:16px;line-height:1.35}
+  #app.v-matrix .sec-h b{font-size:17px}
+  #app.v-matrix .task{padding:7px 6px 7px 10px;margin-top:6px;gap:10px}
+  #app.v-matrix .chk{width:26px;height:26px}
+  #app.v-matrix .handle{width:28px;height:32px}
+  #app.v-matrix .tt{display:flex;align-items:center;gap:10px;min-width:0}
+  #app.v-matrix .tt .tx{flex:1 1 auto;min-width:0}
+  #app.v-matrix .tl{margin-top:0;flex:0 0 auto}
+  #app.v-matrix .tl-t{font-size:13px}
+  #app.v-matrix .tl-t>span{display:none}
+  #app.v-matrix .empty{font-size:15px}
+  #app.v-matrix .backlog-sec .tt{flex-direction:column;align-items:stretch;gap:2px}
+  #app.v-matrix .backlog-sec .tl-t{justify-content:flex-start}
+}
 /* landscape phone: smaller header and button */
 @media (orientation:landscape) and (max-height:520px){
   :root{--hdr:43px;--pad:14px}
