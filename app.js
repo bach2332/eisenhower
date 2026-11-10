@@ -112,7 +112,7 @@ function dueInfo(t) {
   else txt = 'Due ' + fmtShort(t.due);
   return { txt, cls, n };
 }
-// angry Santa shown on tasks that are due today: shakes with rage, face flushes red
+// angry Santa shown on active tasks that are due today or overdue: shakes with rage, face flushes red
 const SANTA = '<span class="santa" aria-hidden="true"><svg viewBox="0 0 32 32" aria-hidden="true"><ellipse class="face" cx="16" cy="21" rx="8.5" ry="7.5" fill="#ffb08a"/><path d="M7.5 22C8 32 24 32 24.5 22C21 25.5 11 25.5 7.5 22z" fill="#fff"/><circle cx="16" cy="23.3" r="1.5" fill="#ff7a59"/><circle cx="12.5" cy="21.2" r="1.2" fill="#222"/><circle cx="19.5" cy="21.2" r="1.2" fill="#222"/><path d="M9.3 18.6L14.6 20.3M22.7 18.6L17.4 20.3" stroke="#222" stroke-width="1.8" stroke-linecap="round"/><path d="M13 28Q16 25.8 19 28" fill="none" stroke="#222" stroke-width="1.5" stroke-linecap="round"/><path d="M5 15C5 7 11 3 19 4c3 .5 4 4 6 11z" fill="#d62828"/><rect x="3.5" y="12.5" width="25" height="5" rx="2.5" fill="#fff"/><circle cx="24.5" cy="5" r="3" fill="#fff"/></svg><span class="rage">💢</span></span>';
 function timelineHTML(t) {
   if (!t.due || t.done) return '';
@@ -121,7 +121,7 @@ function timelineHTML(t) {
   const total = Math.max(1, dayDiff(t.due, startStr));
   const elapsed = dayDiff(today(), startStr);
   const pct = Math.max(0, Math.min(100, Math.round(elapsed / total * 100)));
-  return `<div class="tl ${info.cls}"><div class="tl-t"><span>${fmtShort(startStr)} → ${fmtShort(t.due)}</span><b>${info.n === 0 ? SANTA : ''}${info.txt}</b></div><div class="track"><i style="width:${pct}%"></i></div></div>`;
+  return `<div class="tl ${info.cls}"><div class="tl-t"><span>${fmtShort(startStr)} → ${fmtShort(t.due)}</span><b>${info.n <= 0 ? SANTA : ''}${info.txt}</b></div><div class="track"><i style="width:${pct}%"></i></div></div>`;
 }
 function doneText(t) {
   return (t.doneAt ? fmtTs(t.doneAt) : '') + (t.doneFrom ? ' · from ' + QN[t.doneFrom] : '');
@@ -131,7 +131,7 @@ function dueCell(t) {
   if (!t.due) return '<span class="muted">—</span>';
   if (t.done) return `<span class="due">${fmtShort(t.due)}</span>`;
   const i = dueInfo(t);
-  return `<span class="due ${i.cls}">${i.n === 0 ? SANTA : ''}${i.txt}</span>`;
+  return `<span class="due ${i.cls}">${i.n <= 0 ? SANTA : ''}${i.txt}</span>`;
 }
 const cmpDue = (a, b) => {
   const x = a.due || '9999', y = b.due || '9999';
@@ -226,11 +226,33 @@ function render() {
   if (drag || hold) { pendingRender = true; return; }
   pendingRender = false;
   const y = window.scrollY;
+  const inner = {};
+  document.querySelectorAll('#app [data-drop]').forEach(el => { inner[el.dataset.drop] = el.scrollTop; });
   $('#app').innerHTML = C.view === 'table' ? tableHTML() : matrixHTML();
   $('#app').className = 'v-' + C.view;
   document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.v === C.view));
   updateSyncUI();
+  document.querySelectorAll('#app [data-drop]').forEach(el => { if (inner[el.dataset.drop]) el.scrollTop = inner[el.dataset.drop]; });
   if (window.scrollY !== y) window.scrollTo(0, y);
+}
+
+/* ---------- day-of-week mood (background theme + footer line) ---------- */
+const MOODS = {
+  1: '💪 Monday — power up!',
+  2: '📅 Tuesday — meeting day',
+  3: '😌 Wednesday — comfy',
+  4: '😄 Thursday — no-mental day',
+  5: '🏠 Friday — remote day',
+};
+let shownDay = '';
+function applyDay() {
+  const now = new Date(), k = today(), d = now.getDay();
+  document.documentElement.dataset.day = String(d);
+  const m = $('#mood');
+  if (m) m.textContent = MOODS[d] || '';
+  const changed = shownDay && shownDay !== k;
+  shownDay = k;
+  if (changed) render(); // a new day started while the app stayed open: refresh deadline labels
 }
 
 /* ---------- sheets ---------- */
@@ -678,9 +700,11 @@ document.addEventListener('pointercancel', e => { if (hold && e.pointerId === ho
 
 /* ---------- lifecycle ---------- */
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) applyDay(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && configured() && Date.now() - D.lastSync > 15000) sync(); });
 window.addEventListener('online', () => sync());
 
+applyDay();
 render();
 if (configured()) sync();
 if (/[?&]add\b/.test(location.search)) {
