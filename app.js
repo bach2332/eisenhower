@@ -231,25 +231,37 @@ function render() {
 }
 
 /* ---------- sheets ---------- */
-let sheetOpen = false;
+let sheetOpen = false, sheetGuard = null; // sheetGuard(): true while the open dialog holds unsaved input
 function openSheet(html, bind) {
   $('#panel').innerHTML = html;
   $('#overlay').hidden = false;
   document.body.classList.add('noscroll');
   if (!sheetOpen) { try { history.pushState({ sheet: 1 }, ''); } catch (e) { /* ignore */ } }
   sheetOpen = true;
+  sheetGuard = null;
   if (bind) bind();
 }
 function closeSheet(fromPop) {
   if (!sheetOpen) return;
   sheetOpen = false;
+  sheetGuard = null;
   $('#overlay').hidden = true;
   document.body.classList.remove('noscroll');
   if (!fromPop) { try { history.back(); } catch (e) { /* ignore */ } }
 }
-window.addEventListener('popstate', () => { if (sheetOpen) closeSheet(true); });
-$('#overlay').addEventListener('click', e => { if (e.target.id === 'overlay') closeSheet(); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+// Outside tap / Esc / Back close the dialog, unless it holds typed input: then only the ✕ button closes it.
+const blocked = () => {
+  if (!(sheetOpen && sheetGuard && sheetGuard())) return false;
+  toast('Tap ✕ to close — what you typed would be lost');
+  return true;
+};
+window.addEventListener('popstate', () => {
+  if (!sheetOpen) return;
+  if (blocked()) { try { history.pushState({ sheet: 1 }, ''); } catch (e) { /* ignore */ } return; }
+  closeSheet(true);
+});
+$('#overlay').addEventListener('click', e => { if (e.target.id === 'overlay' && !blocked()) closeSheet(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !blocked()) closeSheet(); });
 
 const chips = cur => `<div class="chips">${ORDER.map(k => `<button type="button" class="chip ${k} ${k === cur ? 'on' : ''}" data-chip="${k}">${QN[k]}</button>`).join('')}</div>`;
 function bindChips(cb) {
@@ -278,6 +290,7 @@ function openAdd(preQ) {
     <div class="lbl">Deadline (optional)</div>${dateField('f-due', '', true)}
     <div class="acts"><span id="f-msg" class="msg"></span><button class="btn primary" id="f-add">Add</button></div>`, () => {
     const ti = $('#f-title'), de = $('#f-detail');
+    sheetGuard = () => !!(ti.value.trim() || de.value.trim() || $('#f-due').value);
     bindChips(v => { q = v; });
     bindQuickDates();
     $('#f-more').onclick = () => { de.hidden = !de.hidden; $('#f-more').textContent = de.hidden ? '+ Add detail' : '− Hide detail'; if (!de.hidden) de.focus(); };
