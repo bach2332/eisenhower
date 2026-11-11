@@ -173,6 +173,19 @@ const cmpOrder = (a, b) => {
   if (x != null && y != null) return x - y;
   return x != null ? -1 : y != null ? 1 : 0;
 };
+// quick search: matches title, detail and tag names
+const match = t => {
+  if (!search) return true;
+  const q = search.toLowerCase();
+  return t.title.toLowerCase().includes(q) || t.detail.toLowerCase().includes(q) || taskTags(t).some(g => g.name.toLowerCase().includes(q));
+};
+function hl(text) { // escape + highlight the search text
+  if (!search) return esc(text);
+  const lo = text.toLowerCase(), q = search.toLowerCase();
+  let out = '', i = 0, j;
+  while ((j = lo.indexOf(q, i)) !== -1) { out += esc(text.slice(i, j)) + '<mark>' + esc(text.slice(j, j + q.length)) + '</mark>'; i = j + q.length; }
+  return out + esc(text.slice(i));
+}
 const tagsHTML = t => {
   const g = taskTags(t);
   return g.length ? `<div class="tgs">${g.map(x => `<span class="tg" style="--tc:${x.color}"><i></i><span class="n">${esc(x.name)}</span></span>`).join('')}</div>` : '';
@@ -185,7 +198,7 @@ function taskHTML(t) {
   const tg = taskTags(t);
   return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}"${tg.length ? ` data-tg style="--tg1:${tg[0].color}"` : ''}>
     <button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button>
-    <div class="tt" data-act="edit"><span class="tx">${esc(t.title)}</span>${hasD ? NOTE : ''}${tagsHTML(t)}
+    <div class="tt" data-act="edit"><span class="tx">${hl(t.title)}</span>${hasD ? NOTE : ''}${tagsHTML(t)}
       ${hasD ? `<div class="prev">${esc(firstLine(t.detail))}</div>` : ''}
       ${t.done ? doneInfo(t) : timelineHTML(t)}</div>
     ${t.done ? '' : `<span class="handle" data-drag aria-label="Drag to move">${HANDLE}</span>`}
@@ -193,7 +206,7 @@ function taskHTML(t) {
 }
 
 function matrixHTML() {
-  const L = live();
+  const L = live().filter(match);
   const act = L.filter(t => !t.done);
   const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   const backlog = act.filter(t => t.q === 'backlog').sort(cmpList);
@@ -211,8 +224,8 @@ function matrixHTML() {
   }
   h += '</div>';
   if (dn.length) {
-    h += `<section class="donesec"><button class="dh" data-act="toggledone"><b>Done</b><span class="cnt">${dn.length}</span><span>${C.showDone ? '▾' : '▸'}</span></button>
-      ${C.showDone ? `<div class="list">${dn.map(taskHTML).join('')}<button class="btn small" data-act="cleardone">Clear done</button></div>` : ''}</section>`;
+    h += `<section class="donesec"><button class="dh" data-act="toggledone"><b>Done</b><span class="cnt">${dn.length}</span><span>${C.showDone || search ? '▾' : '▸'}</span></button>
+      ${C.showDone || search ? `<div class="list">${dn.map(taskHTML).join('')}<button class="btn small" data-act="cleardone">Clear done</button></div>` : ''}</section>`;
   }
   return h;
 }
@@ -224,7 +237,7 @@ function tableBodyHTML() {
   if (C.fq !== 'all') L = L.filter(t => t.q === C.fq);
   if (C.ftag === 'none') L = L.filter(t => !taskTags(t).length);
   else if (C.ftag !== 'all') L = L.filter(t => (t.tags || []).includes(C.ftag));
-  if (search) { const s = search.toLowerCase(); L = L.filter(t => t.title.toLowerCase().includes(s) || t.detail.toLowerCase().includes(s) || taskTags(t).some(g => g.name.toLowerCase().includes(s))); }
+  L = L.filter(match);
   const sorters = {
     q: (a, b) => QORD[a.q] - QORD[b.q] || cmpList(a, b),
     due: cmpDue,
@@ -236,7 +249,7 @@ function tableBodyHTML() {
   const opts = cur => ORDER.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${QN[k]}</option>`).join('');
   const row = t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
       <td><button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button></td>
-      <td class="ttl" data-act="edit"><span class="tx">${esc(t.title)}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
+      <td class="ttl" data-act="edit"><span class="tx">${hl(t.title)}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
       <td class="wide">${tagsHTML(t) || '<span class="muted">—</span>'}</td>
       <td><select class="qsel">${opts(t.q)}</select></td>
       <td class="wide">${dueCell(t)}</td>
@@ -258,7 +271,6 @@ function tableHTML() {
     <select id="t-tag"><option value="all">All tags</option><option value="none" ${C.ftag === 'none' ? 'selected' : ''}>No tag</option>${liveTags().map(g => `<option value="${g.id}" ${C.ftag === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>
     <select id="t-group"><option value="none">No grouping</option><option value="tag" ${C.group === 'tag' ? 'selected' : ''}>Group by tag</option></select>
     <select id="t-sort">${sorts.map(([v, l]) => `<option value="${v}" ${C.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-    <input id="t-search" type="search" placeholder="Search…" value="${esc(search)}">
   </div><div id="tbl">${tableBodyHTML()}</div>`;
 }
 
@@ -275,6 +287,24 @@ function render() {
   document.querySelectorAll('#app [data-drop]').forEach(el => { if (inner[el.dataset.drop]) el.scrollTop = inner[el.dataset.drop]; });
   if (window.scrollY !== y) window.scrollTo(0, y);
 }
+
+/* ---------- quick search (replaces the header row while open) ---------- */
+function openSearch() {
+  $('.top').classList.add('searching');
+  $('.qs').hidden = false;
+  $('#qs-in').focus();
+}
+function closeSearch() {
+  $('.top').classList.remove('searching');
+  $('.qs').hidden = true;
+  $('#qs-in').value = '';
+  if (search) { search = ''; render(); }
+}
+document.addEventListener('keydown', e => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ''));
+  if (e.key === '/' && !typing && !sheetOpen) { e.preventDefault(); openSearch(); }
+  else if (e.key === 'Escape' && e.target.id === 'qs-in' && !sheetOpen) closeSearch();
+});
 
 /* ---------- day-of-week mood (background theme + footer line) ---------- */
 const MOODS = {
@@ -629,6 +659,8 @@ document.addEventListener('click', e => {
     case 'view': setC({ view: a.dataset.v }); render(); window.scrollTo(0, 0); break;
     case 'add': openAdd(); break;
     case 'addq': openAdd(a.dataset.q); break;
+    case 'search': openSearch(); break;
+    case 'qsclose': closeSearch(); break;
     case 'tags': openTags(); break;
     case 'settings': openSettings(); break;
     case 'sync': configured() ? sync() : openSettings(); break;
@@ -653,7 +685,7 @@ document.addEventListener('change', e => {
   else if (t.id === 't-sort') { setC({ sort: t.value }); render(); }
 });
 document.addEventListener('input', e => {
-  if (e.target.id === 't-search') { search = e.target.value; $('#tbl').innerHTML = tableBodyHTML(); }
+  if (e.target.id === 'qs-in') { search = e.target.value.trim(); render(); }
 });
 
 /* ---------- drag & drop (pointer events: touch + mouse) ---------- */
