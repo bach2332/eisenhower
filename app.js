@@ -53,21 +53,37 @@ function clean(t) {
     created: +t.created || 0,
     updatedAt: +t.updatedAt || 0,
     deleted: !!t.deleted,
+    tags: Array.isArray(t.tags) ? [...new Set(t.tags.map(String))].slice(0, 20) : [],
+  };
+}
+const TAG_COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#14b8a6', '#6b7280'];
+function cleanTag(g) {
+  if (!g || g.id == null) return null;
+  return {
+    id: String(g.id),
+    name: String(g.name || '').trim().slice(0, 30),
+    color: /^#[0-9a-f]{6}$/i.test(g.color || '') ? g.color : TAG_COLORS[0],
+    updatedAt: +g.updatedAt || 0,
+    deleted: !!g.deleted,
   };
 }
 
 /* ---------- state ---------- */
 let D = Object.assign({ tasks: [], dirty: false, rev: 0, lastSync: 0 }, lsGet(K_DATA, {}));
 D.tasks = (D.tasks || []).map(clean).filter(Boolean);
-let C = Object.assign({ token: '', gist: '', view: 'matrix', showDone: false, status: 'active', fq: 'all', sort: 'q' }, lsGet(K_CFG, {}));
+D.tags = (D.tags || []).map(cleanTag).filter(g => g && g.name);
+let C = Object.assign({ token: '', gist: '', view: 'matrix', showDone: false, status: 'active', fq: 'all', ftag: 'all', group: 'none', sort: 'q' }, lsGet(K_CFG, {}));
 let search = '';
 let drag = null, hold = null, pendingRender = false;
 let syncing = false, again = false, lastErr = '', pushTimer = null, installEvt = null;
 
-const saveData = () => lsSet(K_DATA, { tasks: D.tasks, dirty: D.dirty, rev: D.rev, lastSync: D.lastSync });
+const saveData = () => lsSet(K_DATA, { tasks: D.tasks, tags: D.tags, dirty: D.dirty, rev: D.rev, lastSync: D.lastSync });
 const setC = o => { Object.assign(C, o); lsSet(K_CFG, C); };
 const configured = () => !!(C.token && C.gist);
 const live = () => D.tasks.filter(t => !t.deleted);
+const liveTags = () => D.tags.filter(g => !g.deleted);
+const tagById = id => liveTags().find(g => g.id === id);
+const taskTags = t => (t.tags || []).map(tagById).filter(Boolean);
 const find = id => D.tasks.find(t => t.id === id && !t.deleted);
 
 function mutate(fn) {
@@ -84,8 +100,18 @@ function addTask(f) {
   const now = Date.now();
   mutate(() => D.tasks.push({
     id: uid(), title: f.title, detail: f.detail || '', q: f.q, done: false, doneAt: null, doneFrom: null,
-    start: null, due: f.due || null, created: now, updatedAt: now, deleted: false,
+    start: null, due: f.due || null, created: now, updatedAt: now, deleted: false, tags: f.tags || [],
   }));
+}
+function addTag(name, color) {
+  name = name.trim().slice(0, 30);
+  if (!name || liveTags().some(g => g.name.toLowerCase() === name.toLowerCase())) return false;
+  mutate(() => D.tags.push({ id: uid(), name, color, updatedAt: Date.now(), deleted: false }));
+  return true;
+}
+function patchTag(id, o) {
+  const g = D.tags.find(x => x.id === id);
+  if (g) mutate(() => Object.assign(g, o, { updatedAt: Date.now() }));
 }
 
 /* ---------- toast ---------- */
@@ -147,14 +173,19 @@ const cmpOrder = (a, b) => {
   if (x != null && y != null) return x - y;
   return x != null ? -1 : y != null ? 1 : 0;
 };
+const tagsHTML = t => {
+  const g = taskTags(t);
+  return g.length ? `<div class="tgs">${g.map(x => `<span class="tg" style="--tc:${x.color}"><i></i><span class="n">${esc(x.name)}</span></span>`).join('')}</div>` : '';
+};
 const firstLine = d => (d.split('\n').find(l => l.trim()) || '').trim();
 
 /* ---------- views ---------- */
 function taskHTML(t) {
   const hasD = !!t.detail;
-  return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}">
+  const tg = taskTags(t);
+  return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}"${tg.length ? ` data-tg style="--tg1:${tg[0].color}"` : ''}>
     <button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button>
-    <div class="tt" data-act="edit"><span class="tx">${esc(t.title)}</span>${hasD ? NOTE : ''}
+    <div class="tt" data-act="edit"><span class="tx">${esc(t.title)}</span>${hasD ? NOTE : ''}${tagsHTML(t)}
       ${hasD ? `<div class="prev">${esc(firstLine(t.detail))}</div>` : ''}
       ${t.done ? doneInfo(t) : timelineHTML(t)}</div>
     ${t.done ? '' : `<span class="handle" data-drag aria-label="Drag to move">${HANDLE}</span>`}
@@ -191,7 +222,9 @@ function tableBodyHTML() {
   if (C.status === 'active') L = L.filter(t => !t.done);
   else if (C.status === 'done') L = L.filter(t => t.done);
   if (C.fq !== 'all') L = L.filter(t => t.q === C.fq);
-  if (search) { const s = search.toLowerCase(); L = L.filter(t => t.title.toLowerCase().includes(s) || t.detail.toLowerCase().includes(s)); }
+  if (C.ftag === 'none') L = L.filter(t => !taskTags(t).length);
+  else if (C.ftag !== 'all') L = L.filter(t => (t.tags || []).includes(C.ftag));
+  if (search) { const s = search.toLowerCase(); L = L.filter(t => t.title.toLowerCase().includes(s) || t.detail.toLowerCase().includes(s) || taskTags(t).some(g => g.name.toLowerCase().includes(s))); }
   const sorters = {
     q: (a, b) => QORD[a.q] - QORD[b.q] || cmpList(a, b),
     due: cmpDue,
@@ -201,14 +234,19 @@ function tableBodyHTML() {
   L.sort(sorters[C.sort] || sorters.q);
   if (!L.length) return '<p class="empty big">No tasks here.</p>';
   const opts = cur => ORDER.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${QN[k]}</option>`).join('');
-  return `<table><thead><tr><th></th><th>Task</th><th>Quadrant</th><th class="wide">Deadline</th><th class="wide">Done</th></tr></thead><tbody>
-    ${L.map(t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
+  const row = t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
       <td><button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button></td>
-      <td class="ttl" data-act="edit"><span class="tx">${esc(t.title)}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span></td>
+      <td class="ttl" data-act="edit"><span class="tx">${esc(t.title)}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
+      <td class="wide">${tagsHTML(t) || '<span class="muted">—</span>'}</td>
       <td><select class="qsel">${opts(t.q)}</select></td>
       <td class="wide">${dueCell(t)}</td>
-      <td class="wide">${t.done ? esc(doneText(t)) : '<span class="muted">—</span>'}</td></tr>`).join('')}
-  </tbody></table>`;
+      <td class="wide">${t.done ? esc(doneText(t)) : '<span class="muted">—</span>'}</td></tr>`;
+  let body;
+  if (C.group === 'tag') {
+    const groups = [...liveTags().map(g => ({ g, rows: L.filter(t => (t.tags || []).includes(g.id)) })), { g: null, rows: L.filter(t => !taskTags(t).length) }];
+    body = groups.filter(x => x.rows.length).map(x => `<tr class="grp"><td colspan="6"><span class="tg" style="--tc:${x.g ? x.g.color : '#6b7280'}"><i></i><span class="n">${x.g ? esc(x.g.name) : 'No tag'}</span></span> <span class="cnt">${x.rows.length}</span></td></tr>${x.rows.map(row).join('')}`).join('');
+  } else body = L.map(row).join('');
+  return `<table><thead><tr><th></th><th>Task</th><th class="wide">Tags</th><th>Quadrant</th><th class="wide">Deadline</th><th class="wide">Done</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
 function tableHTML() {
@@ -217,6 +255,8 @@ function tableHTML() {
   return `<div class="bar">
     <div class="chips">${sc('active', 'Active')}${sc('done', 'Done')}${sc('all', 'All')}</div>
     <select id="t-q"><option value="all">All quadrants</option>${ORDER.map(k => `<option value="${k}" ${C.fq === k ? 'selected' : ''}>${QN[k]}</option>`).join('')}</select>
+    <select id="t-tag"><option value="all">All tags</option><option value="none" ${C.ftag === 'none' ? 'selected' : ''}>No tag</option>${liveTags().map(g => `<option value="${g.id}" ${C.ftag === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>
+    <select id="t-group"><option value="none">No grouping</option><option value="tag" ${C.group === 'tag' ? 'selected' : ''}>Group by tag</option></select>
     <select id="t-sort">${sorts.map(([v, l]) => `<option value="${v}" ${C.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <input id="t-search" type="search" placeholder="Search…" value="${esc(search)}">
   </div><div id="tbl">${tableBodyHTML()}</div>`;
@@ -311,7 +351,17 @@ function bindQuickDates() {
   });
 }
 
+// multi-select tag chips for the add / edit dialogs
+function tagPicker(sel) {
+  const all = liveTags();
+  if (!all.length) return '<p class="hint">No tags yet — create them with the tag button in the header.</p>';
+  return `<div class="chips tpick">${all.map(g => `<button type="button" class="chip tgc ${sel.has(g.id) ? 'on' : ''}" data-tg="${g.id}" style="--tc:${g.color}">${esc(g.name)}</button>`).join('')}</div>`;
+}
+function bindTagPicker(sel) {
+  document.querySelectorAll('#panel [data-tg]').forEach(b => { b.onclick = () => { const id = b.dataset.tg; sel.has(id) ? sel.delete(id) : sel.add(id); b.classList.toggle('on', sel.has(id)); }; });
+}
 function openAdd(preQ) {
+  const tsel = new Set();
   let q = preQ || 'backlog';
   openSheet(`<div class="sh"><b>New task</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     <input id="f-title" type="text" placeholder="What needs doing?" maxlength="200" autocomplete="off" enterkeyhint="done">
@@ -319,18 +369,21 @@ function openAdd(preQ) {
     <textarea id="f-detail" rows="3" maxlength="2000" placeholder="Detail (optional)" hidden></textarea>
     <div class="lbl">Put in</div>${chips(q)}
     <div class="lbl">Deadline (optional)</div>${dateField('f-due', '', true)}
+    <div class="lbl">Tags (optional)</div>${tagPicker(tsel)}
     <div class="acts"><span id="f-msg" class="msg"></span><button class="btn primary" id="f-add">Add</button></div>`, () => {
     const ti = $('#f-title'), de = $('#f-detail');
     sheetGuard = () => !!(ti.value.trim() || de.value.trim() || $('#f-due').value);
     bindChips(v => { q = v; });
     bindQuickDates();
+    bindTagPicker(tsel);
     $('#f-more').onclick = () => { de.hidden = !de.hidden; $('#f-more').textContent = de.hidden ? '+ Add detail' : '− Hide detail'; if (!de.hidden) de.focus(); };
     const go = () => {
       const v = ti.value.trim();
       if (!v) { ti.focus(); return; }
-      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null });
+      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, tags: [...tsel] });
       ti.value = ''; de.value = ''; de.hidden = true; $('#f-more').textContent = '+ Add detail'; $('#f-due').value = '';
       $('#f-due').dispatchEvent(new Event('input', { bubbles: true }));
+      tsel.clear(); document.querySelectorAll('#panel [data-tg]').forEach(b => b.classList.remove('on'));
       $('#f-msg').textContent = 'Added ✓ → ' + QN[q];
       toast(`✓ Task added to ${QN[q]}: ${v.length > 28 ? v.slice(0, 28) + '…' : v}`, null, true);
       ti.focus();
@@ -345,6 +398,7 @@ function openEdit(id) {
   const t = find(id);
   if (!t) return;
   let q = t.q;
+  const tsel = new Set((t.tags || []).filter(id => tagById(id)));
   openSheet(`<div class="sh"><b>Edit task</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     <input id="e-title" type="text" value="${esc(t.title)}" maxlength="200" autocomplete="off">
     <div class="lbl">Detail</div>
@@ -352,14 +406,16 @@ function openEdit(id) {
     <div class="lbl">Move to</div>${chips(q)}
     <div class="lbl">Start date (optional — default: the day it was created)</div>${dateField('e-start', t.start, false)}
     <div class="lbl">Deadline</div>${dateField('e-due', t.due, true)}
+    <div class="lbl">Tags</div>${tagPicker(tsel)}
     ${t.done ? `<p class="hint">Done ${esc(doneText(t))}</p>` : ''}
     <div class="acts"><button class="btn danger" id="e-del">Delete</button><button class="btn primary" id="e-save">Save</button></div>`, () => {
     bindChips(v => { q = v; });
     bindQuickDates();
+    bindTagPicker(tsel);
     const save = () => {
       const title = $('#e-title').value.trim();
       if (!title) return;
-      patch(id, { title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, start: $('#e-start').value || null, due: $('#e-due').value || null });
+      patch(id, { title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, start: $('#e-start').value || null, due: $('#e-due').value || null, tags: [...tsel] });
       closeSheet();
     };
     $('#e-save').onclick = save;
@@ -369,6 +425,45 @@ function openEdit(id) {
       closeSheet();
       toast('Task deleted', () => patch(id, { deleted: false }));
     };
+  });
+}
+
+function openTags() {
+  const rows = liveTags().map(g => {
+    const n = live().filter(t => !t.done && (t.tags || []).includes(g.id)).length;
+    return `<div class="trow" data-tid="${g.id}"><input type="color" class="tcol" value="${g.color}" aria-label="Colour"><input type="text" class="tnm" value="${esc(g.name)}" maxlength="30"><span class="cnt" title="Active tasks">${n}</span><button class="x" data-del aria-label="Delete tag">✕</button></div>`;
+  }).join('');
+  openSheet(`<div class="sh"><b>Tags</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
+    <p class="hint">Create tags here, then pick them when adding or editing a task. The Table view can filter and group by tag.</p>
+    ${rows || '<p class="empty">No tags yet.</p>'}
+    <div class="lbl">New tag</div>
+    <div class="trow"><input type="color" class="tcol" id="g-col" value="${TAG_COLORS[liveTags().length % TAG_COLORS.length]}" aria-label="Colour"><input type="text" class="tnm" id="g-name" maxlength="30" placeholder="e.g. WMS, Home, Study" autocomplete="off"><button class="btn primary" id="g-add">Add</button></div>
+    <span id="g-msg" class="msg"></span>`, () => {
+    const again = () => openTags();
+    document.querySelectorAll('#panel .trow[data-tid]').forEach(r => {
+      const id = r.dataset.tid;
+      r.querySelector('.tcol').onchange = e => { patchTag(id, { color: e.target.value }); };
+      r.querySelector('.tnm').onchange = e => {
+        const v = e.target.value.trim();
+        if (!v || liveTags().some(g => g.id !== id && g.name.toLowerCase() === v.toLowerCase())) { e.target.value = tagById(id).name; return; }
+        patchTag(id, { name: v });
+      };
+      r.querySelector('[data-del]').onclick = () => {
+        const g = tagById(id);
+        patchTag(id, { deleted: true });
+        again();
+        toast(`Tag “${g.name}” deleted`, () => { patchTag(id, { deleted: false }); if (sheetOpen) again(); });
+      };
+    });
+    const add = () => {
+      const nm = $('#g-name').value.trim();
+      if (!nm) { $('#g-name').focus(); return; }
+      if (!addTag(nm, $('#g-col').value)) { $('#g-msg').textContent = 'A tag with this name already exists.'; return; }
+      again();
+      setTimeout(() => $('#g-name') && $('#g-name').focus(), 30);
+    };
+    $('#g-add').onclick = add;
+    $('#g-name').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
   });
 }
 
@@ -421,7 +516,7 @@ function openSettings() {
 
 /* ---------- sync (GitHub Gist) ---------- */
 function serialize() {
-  return JSON.stringify({ version: 2, updated: new Date().toISOString(), tasks: [...D.tasks].sort((a, b) => a.created - b.created) }, null, 1);
+  return JSON.stringify({ version: 2, updated: new Date().toISOString(), tags: D.tags, tasks: [...D.tasks].sort((a, b) => a.created - b.created) }, null, 1);
 }
 async function gh(path, opts = {}) {
   const r = await fetch('https://api.github.com' + path, Object.assign({}, opts, {
@@ -468,17 +563,19 @@ async function sync() {
   try {
     const g = await gh('/gists/' + id);
     const f = g.files && g.files[FILE];
-    let remote = [];
+    let remote = [], remoteTags = [];
     if (f) {
       let text = f.content;
       if (f.truncated) text = await (await fetch(f.raw_url, { cache: 'no-store' })).text();
       let obj;
       try { obj = JSON.parse(text); } catch (_) { throw new Error('tasks.json in the Gist is not valid JSON'); }
       remote = (Array.isArray(obj) ? obj : (obj.tasks || [])).map(clean).filter(Boolean);
+      remoteTags = (Array.isArray(obj) ? [] : (obj.tags || [])).map(cleanTag).filter(g => g && g.name);
     }
     const merged = merge(D.tasks, remote);
-    const needPush = !same(merged, remote);
-    D.tasks = merged;
+    const mergedTags = merge(D.tags, remoteTags);
+    const needPush = !same(merged, remote) || !same(mergedTags, remoteTags);
+    D.tasks = merged; D.tags = mergedTags;
     if (needPush) {
       const body = JSON.stringify({ files: { [FILE]: { content: serialize() } } });
       const revAtPush = D.rev;
@@ -532,6 +629,7 @@ document.addEventListener('click', e => {
     case 'view': setC({ view: a.dataset.v }); render(); window.scrollTo(0, 0); break;
     case 'add': openAdd(); break;
     case 'addq': openAdd(a.dataset.q); break;
+    case 'tags': openTags(); break;
     case 'settings': openSettings(); break;
     case 'sync': configured() ? sync() : openSettings(); break;
     case 'close': closeSheet(); break;
@@ -550,6 +648,8 @@ document.addEventListener('change', e => {
   const t = e.target;
   if (t.matches && t.matches('.qsel')) patch(t.closest('[data-id]').dataset.id, { q: t.value, order: null });
   else if (t.id === 't-q') { setC({ fq: t.value }); render(); }
+  else if (t.id === 't-tag') { setC({ ftag: t.value }); render(); }
+  else if (t.id === 't-group') { setC({ group: t.value }); render(); }
   else if (t.id === 't-sort') { setC({ sort: t.value }); render(); }
 });
 document.addEventListener('input', e => {
