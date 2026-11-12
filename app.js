@@ -289,21 +289,15 @@ function render() {
 }
 
 /* ---------- quick search (replaces the header row while open) ---------- */
-function openSearch() {
-  $('.top').classList.add('searching');
-  $('.qs').hidden = false;
-  $('#qs-in').focus();
-}
+function openSearch() { $('#qs-in').focus(); }
 function closeSearch() {
-  $('.top').classList.remove('searching');
-  $('.qs').hidden = true;
   $('#qs-in').value = '';
   if (search) { search = ''; render(); }
 }
 document.addEventListener('keydown', e => {
   const typing = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName || ''));
   if (e.key === '/' && !typing && !sheetOpen) { e.preventDefault(); openSearch(); }
-  else if (e.key === 'Escape' && e.target.id === 'qs-in' && !sheetOpen) closeSearch();
+  else if (e.key === 'Escape' && e.target.id === 'qs-in' && !sheetOpen) { closeSearch(); e.target.blur(); }
 });
 
 /* ---------- day-of-week mood (background theme + footer line) ---------- */
@@ -659,8 +653,6 @@ document.addEventListener('click', e => {
     case 'view': setC({ view: a.dataset.v }); render(); window.scrollTo(0, 0); break;
     case 'add': openAdd(); break;
     case 'addq': openAdd(a.dataset.q); break;
-    case 'search': openSearch(); break;
-    case 'qsclose': closeSearch(); break;
     case 'tags': openTags(); break;
     case 'settings': openSettings(); break;
     case 'sync': configured() ? sync() : openSettings(); break;

@@ -14,7 +14,7 @@ A static web app (plain HTML/JS, no build step) that you can install as a PWA on
 - **Complete**: tap the circle on the left (with Undo). The completion date and the quadrant the task was in are kept ("Done 09/11 · from Now").
 - **Two views**: Matrix and Table (filter, sort, search, Deadline and Done columns).
 - **Tags**: create coloured tags with the tag button in the header (rename, recolour, delete), pick any number per task when adding or editing. Cards show the tag pills (a coloured left edge on phones); Table adds a Tags column, a tag filter, search by tag name, and **Group by tag**. Tags sync through the Gist with the tasks.
-- **Quick search**: tap the magnifier (or press `/`) and type — Matrix and Table filter instantly by title, detail or tag name, with matches highlighted. Esc or ✕ clears it.
+- **Quick search**: always-visible search box under the header (press `/` to focus) — Matrix and Table filter as you type by title, detail or tag name, matches highlighted. Esc clears it.
 - **Phone in landscape**: Backlog on the left and the 2x2 matrix filling the screen, so everything is visible at once.
 - **Offline-first** with Gist sync (merged per task by `updatedAt`).
 - **Version footer**: shows the build date as `yyyymmdd`; it is updated with every change.
