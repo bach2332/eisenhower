@@ -53,6 +53,7 @@ function clean(t) {
     created: +t.created || 0,
     updatedAt: +t.updatedAt || 0,
     deleted: !!t.deleted,
+    promotedFor: t.promotedFor ? String(t.promotedFor) : null,
     tags: Array.isArray(t.tags) ? [...new Set(t.tags.map(String))].slice(0, 20) : [],
   };
 }
@@ -89,8 +90,39 @@ const find = id => D.tasks.find(t => t.id === id && !t.deleted);
 
 function mutate(fn) {
   fn();
+  const mv = promote();
   D.rev++; D.dirty = true;
   saveData(); render(); schedulePush();
+  announcePromo(mv);
+}
+/* Auto-promote: an active task whose deadline is within N days (default 2, or overdue) moves up one urgency level:
+   Next -> Now, Maybe -> Hand off. Backlog (unsorted) is left alone. Each task is promoted once per deadline,
+   so putting it back by hand (or via Undo) sticks. */
+const PROMO = { q2: 'q1', q4: 'q3' };
+function promote() {
+  const days = C.autoPromote === undefined ? 2 : +C.autoPromote;
+  if (!days) return [];
+  const now = clock(), lim = today(), moved = [];
+  D.tasks.forEach(t => {
+    if (t.deleted || t.done || !t.due || !PROMO[t.q] || t.promotedFor === t.due) return;
+    if (dayDiff(t.due, lim) > days) return;
+    moved.push({ id: t.id, from: t.q });
+    t.q = PROMO[t.q]; t.order = null; t.promotedFor = t.due; t.updatedAt = now;
+  });
+  return moved;
+}
+function announcePromo(mv) {
+  if (!mv || !mv.length) return;
+  const to = id => { const t = D.tasks.find(x => x.id === id); return t ? QN[t.q] : ''; };
+  const txt = mv.length === 1
+    ? `⚡ “${D.tasks.find(x => x.id === mv[0].id).title.slice(0, 28)}” is due soon → moved to ${to(mv[0].id)}`
+    : `⚡ ${mv.length} tasks due soon moved up (${[...new Set(mv.map(m => QN[m.from] + ' → ' + to(m.id)))].join(', ')})`;
+  toast(txt, () => mutate(() => { const now = clock(); mv.forEach(m => { const t = D.tasks.find(x => x.id === m.id); if (t) { t.q = m.from; t.order = null; t.updatedAt = now; } }); }));
+}
+function runPromote() { // outside of a user edit: load, new day, after sync
+  const mv = promote();
+  if (mv.length) { D.rev++; D.dirty = true; saveData(); schedulePush(); }
+  return mv;
 }
 function patch(id, o) {
   const t = D.tasks.find(x => x.id === id);
@@ -100,7 +132,7 @@ function patch(id, o) {
 function addTask(f) {
   const now = clock();
   mutate(() => D.tasks.push({
-    id: uid(), title: f.title, detail: f.detail || '', q: f.q, done: false, doneAt: null, doneFrom: null,
+    id: uid(), title: f.title, detail: f.detail || '', promotedFor: f.due || null, q: f.q, done: false, doneAt: null, doneFrom: null,
     start: null, due: f.due || null, created: now, updatedAt: now, deleted: false, tags: f.tags || [],
   }));
 }
@@ -319,7 +351,7 @@ function applyDay() {
   if (m) m.textContent = MOODS[d] || '';
   const changed = shownDay && shownDay !== k;
   shownDay = k;
-  if (changed) render(); // a new day started while the app stayed open: refresh deadline labels
+  if (changed) { const mv = runPromote(); render(); announcePromo(mv); } // a new day started while the app stayed open: refresh deadline labels
 }
 
 /* ---------- sheets ---------- */
@@ -442,7 +474,7 @@ function openEdit(id) {
     const save = () => {
       const title = $('#e-title').value.trim();
       if (!title) return;
-      patch(id, { title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, start: $('#e-start').value || null, due: $('#e-due').value || null, tags: [...tsel] });
+      patch(id, { title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, promotedFor: q === t.q ? t.promotedFor : ($('#e-due').value || null), start: $('#e-start').value || null, due: $('#e-due').value || null, tags: [...tsel] });
       closeSheet();
     };
     $('#e-save').onclick = save;
@@ -511,6 +543,8 @@ function openSettings() {
     </div>
     <div class="lbl">Display &amp; data</div>
     <label class="chk-row"><input type="checkbox" id="s-compact" ${C.compact === false ? '' : 'checked'}> Compact cards in Matrix (one line, status shown by colour)</label>
+    <div class="lbl">Auto-promote tasks due within (Next → Now, Maybe → Hand off)</div>
+    <select id="s-promo">${[[0, 'Off'], [1, '1 day'], [2, '2 days'], [3, '3 days'], [5, '5 days']].map(([v, l]) => `<option value="${v}" ${(C.autoPromote === undefined ? 2 : +C.autoPromote) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <div class="lbl">Auto-clear done tasks after</div>
     <select id="s-auto">${[[0, 'Never'], [7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days']].map(([v, l]) => `<option value="${v}" ${(+C.autoClear || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <div class="acts" style="flex-wrap:wrap">
@@ -524,6 +558,7 @@ function openSettings() {
     </div>`, () => {
     const msg = $('#s-msg');
     $('#s-compact').onchange = e => { setC({ compact: e.target.checked }); render(); };
+    $('#s-promo').onchange = e => { setC({ autoPromote: +e.target.value }); const mv = promote(); if (mv.length) { D.rev++; D.dirty = true; saveData(); render(); schedulePush(); announcePromo(mv); } };
     $('#s-auto').onchange = e => { setC({ autoClear: +e.target.value }); const n = tidy(); if (n) { saveData(); render(); schedulePush(); toast(n + ' old done task(s) cleared'); } };
     $('#s-export').onclick = () => {
       const a = document.createElement('a');
@@ -649,6 +684,7 @@ async function sync() {
   clearTimeout(pushTimer);
   syncing = true; lastErr = ''; updateSyncUI();
   const id = encodeURIComponent(C.gist);
+  let promoted = [];
   const absorb = r => { D.tasks = merge(D.tasks, r.tasks); D.tags = merge(D.tags, r.tags); };
   try {
     let remote = await pullGist(id);
@@ -671,6 +707,7 @@ async function sync() {
     }
     D.lastSync = Date.now();
     tidy();
+    promoted = runPromote();
   } catch (e) {
     lastErr = errMsg(e);
     again = false;
@@ -679,6 +716,7 @@ async function sync() {
     saveData();
     updateSyncUI();
     render();
+    announcePromo(promoted);
     if (!lastErr && (again || D.dirty)) { again = false; schedulePush(); }
   }
 }
@@ -734,7 +772,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
-  if (t.matches && t.matches('.qsel')) patch(t.closest('[data-id]').dataset.id, { q: t.value, order: null });
+  if (t.matches && t.matches('.qsel')) { const r = find(t.closest('[data-id]').dataset.id); patch(r.id, { q: t.value, order: null, promotedFor: r.due }); }
   else if (t.id === 't-q') { setC({ fq: t.value }); render(); }
   else if (t.id === 't-tag') { setC({ ftag: t.value }); render(); }
   else if (t.id === 't-group') { setC({ group: t.value }); render(); }
@@ -777,7 +815,7 @@ function placeTask(id, target, ids, i) {
     if (list.some(x => x.order == null)) list.forEach((x, k) => { x.order = (k + 1) * 1000; x.updatedAt = now; });
     const p = list[i - 1], n = list[i];
     t.order = p && n ? (p.order + n.order) / 2 : n ? n.order - 1000 : p ? p.order + 1000 : 1000;
-    t.q = target; t.updatedAt = now;
+    t.q = target; t.updatedAt = now; t.promotedFor = t.due;
   });
 }
 function moveGhost() {
@@ -897,8 +935,10 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && co
 window.addEventListener('online', () => sync());
 
 { const n = tidy(); if (n) { saveData(); schedulePush(); } }
+const startMv = runPromote();
 applyDay();
 render();
+announcePromo(startMv);
 if (configured()) sync();
 if (/[?&]add\b/.test(location.search)) {
   try { history.replaceState(null, '', location.pathname); } catch (_) { /* ignore */ }
