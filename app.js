@@ -74,6 +74,7 @@ D.tasks = (D.tasks || []).map(clean).filter(Boolean);
 D.tags = (D.tags || []).map(cleanTag).filter(g => g && g.name);
 let C = Object.assign({ token: '', gist: '', view: 'matrix', showDone: false, status: 'active', fq: 'all', ftag: 'all', group: 'none', sort: 'q' }, lsGet(K_CFG, {}));
 let search = '';
+const clock = () => Date.now() + (+C.skew || 0); // local time corrected by GitHub's server clock (see gh())
 let drag = null, hold = null, pendingRender = false;
 let syncing = false, again = false, lastErr = '', pushTimer = null, installEvt = null;
 
@@ -94,10 +95,10 @@ function mutate(fn) {
 function patch(id, o) {
   const t = D.tasks.find(x => x.id === id);
   if (!t) return;
-  mutate(() => Object.assign(t, o, { updatedAt: Date.now() }));
+  mutate(() => Object.assign(t, o, { updatedAt: clock() }));
 }
 function addTask(f) {
-  const now = Date.now();
+  const now = clock();
   mutate(() => D.tasks.push({
     id: uid(), title: f.title, detail: f.detail || '', q: f.q, done: false, doneAt: null, doneFrom: null,
     start: null, due: f.due || null, created: now, updatedAt: now, deleted: false, tags: f.tags || [],
@@ -106,12 +107,12 @@ function addTask(f) {
 function addTag(name, color) {
   name = name.trim().slice(0, 30);
   if (!name || liveTags().some(g => g.name.toLowerCase() === name.toLowerCase())) return false;
-  mutate(() => D.tags.push({ id: uid(), name, color, updatedAt: Date.now(), deleted: false }));
+  mutate(() => D.tags.push({ id: uid(), name, color, updatedAt: clock(), deleted: false }));
   return true;
 }
 function patchTag(id, o) {
   const g = D.tags.find(x => x.id === id);
-  if (g) mutate(() => Object.assign(g, o, { updatedAt: Date.now() }));
+  if (g) mutate(() => Object.assign(g, o, { updatedAt: clock() }));
 }
 
 /* ---------- toast ---------- */
@@ -177,10 +178,11 @@ const cmpOrder = (a, b) => {
 const match = t => {
   if (!search) return true;
   const q = search.toLowerCase();
+  if (q[0] === '#') { const n = q.slice(1); return !n || taskTags(t).some(g => g.name.toLowerCase().includes(n)); } // "#tag" = tags only
   return t.title.toLowerCase().includes(q) || t.detail.toLowerCase().includes(q) || taskTags(t).some(g => g.name.toLowerCase().includes(q));
 };
 function hl(text) { // escape + highlight the search text
-  if (!search) return esc(text);
+  if (!search || search[0] === '#') return esc(text);
   const lo = text.toLowerCase(), q = search.toLowerCase();
   let out = '', i = 0, j;
   while ((j = lo.indexOf(q, i)) !== -1) { out += esc(text.slice(i, j)) + '<mark>' + esc(text.slice(j, j + q.length)) + '</mark>'; i = j + q.length; }
@@ -188,7 +190,7 @@ function hl(text) { // escape + highlight the search text
 }
 const tagsHTML = t => {
   const g = taskTags(t);
-  return g.length ? `<div class="tgs">${g.map(x => `<span class="tg" style="--tc:${x.color}"><i></i><span class="n">${esc(x.name)}</span></span>`).join('')}</div>` : '';
+  return g.length ? `<div class="tgs">${g.map(x => `<span class="tg" data-name="${esc(x.name)}" title="Filter by this tag" style="--tc:${x.color}"><i></i><span class="n">${esc(x.name)}</span></span>`).join('')}</div>` : '';
 };
 const firstLine = d => (d.split('\n').find(l => l.trim()) || '').trim();
 
@@ -196,9 +198,10 @@ const firstLine = d => (d.split('\n').find(l => l.trim()) || '').trim();
 function taskHTML(t) {
   const hasD = !!t.detail;
   const tg = taskTags(t);
-  return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}"${tg.length ? ` data-tg style="--tg1:${tg[0].color}"` : ''}>
+  const di = !t.done && t.due ? dueInfo(t) : null;
+  return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}"${di && (di.cls) ? ` data-due="${di.cls}"` : ''}${tg.length ? ` data-tg style="--tg1:${tg[0].color}"` : ''}>
     <button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button>
-    <div class="tt" data-act="edit"><span class="tx">${hl(t.title)}</span>${hasD ? NOTE : ''}${tagsHTML(t)}
+    <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${hl(t.title)}</span>${hasD ? NOTE : ''}${tagsHTML(t)}
       ${hasD ? `<div class="prev">${esc(firstLine(t.detail))}</div>` : ''}
       ${t.done ? doneInfo(t) : timelineHTML(t)}</div>
     ${t.done ? '' : `<span class="handle" data-drag aria-label="Drag to move">${HANDLE}</span>`}
@@ -249,7 +252,7 @@ function tableBodyHTML() {
   const opts = cur => ORDER.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${QN[k]}</option>`).join('');
   const row = t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
       <td><button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button></td>
-      <td class="ttl" data-act="edit"><span class="tx">${hl(t.title)}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
+      <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${hl(t.title)}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
       <td class="wide">${tagsHTML(t) || '<span class="muted">—</span>'}</td>
       <td><select class="qsel">${opts(t.q)}</select></td>
       <td class="wide">${dueCell(t)}</td>
@@ -281,7 +284,7 @@ function render() {
   const inner = {};
   document.querySelectorAll('#app [data-drop]').forEach(el => { inner[el.dataset.drop] = el.scrollTop; });
   $('#app').innerHTML = C.view === 'table' ? tableHTML() : matrixHTML();
-  $('#app').className = 'v-' + C.view;
+  $('#app').className = 'v-' + C.view + (C.compact === false ? '' : ' compact');
   document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.v === C.view));
   updateSyncUI();
   document.querySelectorAll('#app [data-drop]').forEach(el => { if (inner[el.dataset.drop]) el.scrollTop = inner[el.dataset.drop]; });
@@ -500,17 +503,50 @@ function openSettings() {
     <input id="s-token" type="password" value="${esc(C.token)}" autocomplete="off" placeholder="ghp_…">
     <div class="lbl">Gist ID (or paste the Gist URL)</div>
     <input id="s-gist" type="text" value="${esc(C.gist)}" autocomplete="off" placeholder="leave empty and tap “Create new Gist”">
-    <p class="hint">The token is stored only in this browser. Use a classic token with just the <b>gist</b> scope.</p>
+    <p class="hint">The token is stored in plain text in this browser only — never give it more than the <b>gist</b> scope, and revoke it on GitHub if this device is lost.</p>
     <div class="acts" style="flex-wrap:wrap"><span id="s-msg" class="msg">${esc(status)}</span></div>
     <div class="acts" style="flex-wrap:wrap">
       <button class="btn" id="s-create">Create new Gist</button>
       <button class="btn primary" id="s-save">Save &amp; sync</button>
+    </div>
+    <div class="lbl">Display &amp; data</div>
+    <label class="chk-row"><input type="checkbox" id="s-compact" ${C.compact === false ? '' : 'checked'}> Compact cards in Matrix (one line, status shown by colour)</label>
+    <div class="lbl">Auto-clear done tasks after</div>
+    <select id="s-auto">${[[0, 'Never'], [7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days']].map(([v, l]) => `<option value="${v}" ${(+C.autoClear || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+    <div class="acts" style="flex-wrap:wrap">
+      <button class="btn" id="s-export">Export backup (.json)</button>
+      <button class="btn" id="s-import">Import backup…</button>
+      <input type="file" id="s-file" accept="application/json,.json" hidden>
     </div>
     <div class="acts" style="justify-content:space-between">
       <button class="btn" id="s-install" ${installEvt ? '' : 'hidden'}>Install app</button>
       <button class="btn danger" id="s-off">Disconnect</button>
     </div>`, () => {
     const msg = $('#s-msg');
+    $('#s-compact').onchange = e => { setC({ compact: e.target.checked }); render(); };
+    $('#s-auto').onchange = e => { setC({ autoClear: +e.target.value }); const n = tidy(); if (n) { saveData(); render(); schedulePush(); toast(n + ' old done task(s) cleared'); } };
+    $('#s-export').onclick = () => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([serialize()], { type: 'application/json' }));
+      a.download = 'priority-matrix-' + ymd(new Date()).replace(/-/g, '') + '.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      msg.textContent = '✓ Backup downloaded';
+    };
+    $('#s-import').onclick = () => $('#s-file').click();
+    $('#s-file').onchange = async e => {
+      const f = e.target.files[0]; if (!f) return;
+      try {
+        const obj = JSON.parse(await f.text());
+        const ts = (Array.isArray(obj) ? obj : (obj.tasks || [])).map(clean).filter(Boolean);
+        const gs = (Array.isArray(obj) ? [] : (obj.tags || [])).map(cleanTag).filter(g => g && g.name);
+        if (!ts.length && !gs.length) throw new Error('No tasks found in this file');
+        const before = live().length;
+        mutate(() => { D.tasks = merge(D.tasks, ts); D.tags = merge(D.tags, gs); });
+        msg.textContent = `✓ Imported — ${live().length - before} new task(s) added (newer local edits are kept)`;
+      } catch (err) { msg.textContent = '✗ ' + (err.message || 'Invalid backup file'); }
+      e.target.value = '';
+    };
     $('#s-save').onclick = async () => {
       setC({ token: $('#s-token').value.trim(), gist: $('#s-gist').value.trim().split('/').filter(Boolean).pop() || '' });
       $('#s-gist').value = C.gist;
@@ -572,43 +608,69 @@ function same(a, b) {
   const m = new Map(b.map(t => [t.id, t.updatedAt]));
   return a.every(t => m.get(t.id) === t.updatedAt);
 }
+// housekeeping: auto-clear old done tasks, drop tag ids that no longer exist anywhere
+function tidy() {
+  const known = new Set(D.tags.map(g => g.id));
+  let fixed = 0;
+  D.tasks.forEach(t => { if (t.tags && t.tags.some(id => !known.has(id))) { t.tags = t.tags.filter(id => known.has(id)); fixed++; } });
+  const days = +C.autoClear || 0;
+  if (!days) return fixed;
+  const cut = Date.now() - days * 864e5, now = clock();
+  const old = D.tasks.filter(t => !t.deleted && t.done && t.doneAt && t.doneAt < cut);
+  old.forEach(t => { t.deleted = true; t.updatedAt = now; });
+  if (old.length) { D.rev++; D.dirty = true; }
+  return old.length + fixed;
+}
 function schedulePush() {
   if (!configured()) return;
   clearTimeout(pushTimer);
   pushTimer = setTimeout(sync, 2000);
   updateSyncUI();
 }
+async function pullGist(id) {
+  const g = await gh('/gists/' + id);
+  const f = g.files && g.files[FILE];
+  let tasks = [], tags = [];
+  if (f) {
+    let text = f.content;
+    if (f.truncated) text = await (await fetch(f.raw_url, { cache: 'no-store' })).text();
+    let obj;
+    try { obj = JSON.parse(text); } catch (_) { throw new Error('tasks.json in the Gist is not valid JSON'); }
+    tasks = (Array.isArray(obj) ? obj : (obj.tasks || [])).map(clean).filter(Boolean);
+    tags = (Array.isArray(obj) ? [] : (obj.tags || [])).map(cleanTag).filter(g => g && g.name);
+  }
+  return { tasks, tags };
+}
+// Gist has no compare-and-swap, so: pull, merge, re-pull right before writing (picks up another device's push made meanwhile),
+// write, then read back once more to confirm nothing newer slipped in; if it did, merge it and push again.
 async function sync() {
   if (!configured()) return;
   if (syncing) { again = true; return; }
   clearTimeout(pushTimer);
   syncing = true; lastErr = ''; updateSyncUI();
   const id = encodeURIComponent(C.gist);
+  const absorb = r => { D.tasks = merge(D.tasks, r.tasks); D.tags = merge(D.tags, r.tags); };
   try {
-    const g = await gh('/gists/' + id);
-    const f = g.files && g.files[FILE];
-    let remote = [], remoteTags = [];
-    if (f) {
-      let text = f.content;
-      if (f.truncated) text = await (await fetch(f.raw_url, { cache: 'no-store' })).text();
-      let obj;
-      try { obj = JSON.parse(text); } catch (_) { throw new Error('tasks.json in the Gist is not valid JSON'); }
-      remote = (Array.isArray(obj) ? obj : (obj.tasks || [])).map(clean).filter(Boolean);
-      remoteTags = (Array.isArray(obj) ? [] : (obj.tags || [])).map(cleanTag).filter(g => g && g.name);
-    }
-    const merged = merge(D.tasks, remote);
-    const mergedTags = merge(D.tags, remoteTags);
-    const needPush = !same(merged, remote) || !same(mergedTags, remoteTags);
-    D.tasks = merged; D.tags = mergedTags;
-    if (needPush) {
-      const body = JSON.stringify({ files: { [FILE]: { content: serialize() } } });
+    let remote = await pullGist(id);
+    absorb(remote);
+    if (!same(D.tasks, remote.tasks) || !same(D.tags, remote.tags)) {
+      const fresh = await pullGist(id); // re-read just before writing
+      absorb(fresh);
       const revAtPush = D.rev;
-      await gh('/gists/' + id, { method: 'PATCH', body });
-      if (D.rev === revAtPush) D.dirty = false;
+      const t0 = Date.now();
+      const put = await gh('/gists/' + id, { method: 'PATCH', body: JSON.stringify({ files: { [FILE]: { content: serialize() } } }) });
+      // the Gist's updated_at is GitHub's own clock at the moment of the write → learn how far this device's clock is off
+      const sd = Date.parse(put && put.updated_at);
+      if (sd) { const sk = sd - (t0 + Date.now()) / 2; if (Math.abs(sk - (+C.skew || 0)) > 1500) setC({ skew: Math.abs(sk) < 1500 ? 0 : Math.round(sk) }); }
+      const back = await pullGist(id); // read back: did another device write in between?
+      const lost = !same(D.tasks, back.tasks) || !same(D.tags, back.tags);
+      absorb(back);
+      if (lost) again = true; else if (D.rev === revAtPush) D.dirty = false;
     } else {
       D.dirty = false;
     }
     D.lastSync = Date.now();
+    tidy();
   } catch (e) {
     lastErr = errMsg(e);
     again = false;
@@ -643,6 +705,8 @@ function toggle(id) {
 }
 
 document.addEventListener('click', e => {
+  const pill = e.target.closest('.tg[data-name]');
+  if (pill) { const inp = $('#qs-in'); inp.value = '#' + pill.dataset.name; search = inp.value.toLowerCase(); render(); return; }
   const a = e.target.closest('[data-act]');
   if (!a) return;
   const row = a.closest('[data-id]');
@@ -662,8 +726,8 @@ document.addEventListener('click', e => {
     case 'cleardone': {
       const ids = live().filter(t => t.done).map(t => t.id);
       if (!ids.length) break;
-      mutate(() => { const now = Date.now(); D.tasks.forEach(t => { if (ids.includes(t.id)) { t.deleted = true; t.updatedAt = now; } }); });
-      toast(ids.length + ' done task(s) cleared', () => mutate(() => { const now = Date.now(); D.tasks.forEach(t => { if (ids.includes(t.id)) { t.deleted = false; t.updatedAt = now; } }); }));
+      mutate(() => { const now = clock(); D.tasks.forEach(t => { if (ids.includes(t.id)) { t.deleted = true; t.updatedAt = now; } }); });
+      toast(ids.length + ' done task(s) cleared', () => mutate(() => { const now = clock(); D.tasks.forEach(t => { if (ids.includes(t.id)) { t.deleted = false; t.updatedAt = now; } }); }));
       break;
     }
   }
@@ -675,6 +739,10 @@ document.addEventListener('change', e => {
   else if (t.id === 't-tag') { setC({ ftag: t.value }); render(); }
   else if (t.id === 't-group') { setC({ group: t.value }); render(); }
   else if (t.id === 't-sort') { setC({ sort: t.value }); render(); }
+});
+document.addEventListener('keydown', e => {
+  const el = e.target;
+  if ((e.key === 'Enter' || e.key === ' ') && el.matches && el.matches('[data-act=edit][tabindex]')) { e.preventDefault(); el.click(); }
 });
 document.addEventListener('input', e => {
   if (e.target.id === 'qs-in') { search = e.target.value.trim(); render(); }
@@ -704,7 +772,7 @@ function clearMarks() {
 function placeTask(id, target, ids, i) {
   const t = find(id);
   const list = ids.map(find).filter(Boolean);
-  const now = Date.now();
+  const now = clock();
   mutate(() => {
     if (list.some(x => x.order == null)) list.forEach((x, k) => { x.order = (k + 1) * 1000; x.updatedAt = now; });
     const p = list[i - 1], n = list[i];
@@ -828,6 +896,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) appl
 document.addEventListener('visibilitychange', () => { if (!document.hidden && configured() && Date.now() - D.lastSync > 15000) sync(); });
 window.addEventListener('online', () => sync());
 
+{ const n = tidy(); if (n) { saveData(); schedulePush(); } }
 applyDay();
 render();
 if (configured()) sync();

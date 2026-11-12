@@ -14,7 +14,8 @@ A static web app (plain HTML/JS, no build step) that you can install as a PWA on
 - **Complete**: tap the circle on the left (with Undo). The completion date and the quadrant the task was in are kept ("Done 09/11 · from Now").
 - **Two views**: Matrix and Table (filter, sort, search, Deadline and Done columns).
 - **Tags**: create coloured tags with the tag button in the header (rename, recolour, delete), pick any number per task when adding or editing. Cards show the tag pills (a coloured left edge on phones); Table adds a Tags column, a tag filter, search by tag name, and **Group by tag**. Tags sync through the Gist with the tasks.
-- **Quick search**: always-visible search box under the header (press `/` to focus) — Matrix and Table filter as you type by title, detail or tag name, matches highlighted. Esc clears it.
+- **Backup & housekeeping**: ⚙ → Export backup (.json) / Import backup (merges, newer local edits win); optional auto-clear of done tasks after 7–60 days; Compact cards (one line, status by colour + Santa) for phones.
+- **Quick search**: always-visible search box under the header (press `/` to focus) — Matrix and Table filter as you type by title, detail or tag name, matches highlighted. Esc clears it. Type `#tag` (or tap a tag pill) to filter by tag only.
 - **Phone in landscape**: Backlog on the left and the 2x2 matrix filling the screen, so everything is visible at once.
 - **Offline-first** with Gist sync (merged per task by `updatedAt`).
 - **Version footer**: shows the build date as `yyyymmdd`; it is updated with every change.
@@ -33,7 +34,7 @@ If the app still shows an old version, fully close it and open it again so the s
 2. Open the app → ⚙ → paste the token → **Create new Gist** (or paste an existing Gist ID) → **Save & sync**.
 3. On another device, paste the same token and Gist ID.
 
-The token is stored only in that browser, never in the code.
+The token is stored in plain text in that browser only, never in the code. Give it nothing beyond the `gist` scope, and revoke it on GitHub if a device is lost.
 
 ## Install on Android
 

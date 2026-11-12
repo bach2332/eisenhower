@@ -278,6 +278,24 @@ tr.grp td{padding:12px 6px 4px;border:0;background:none}
 mark{background:#ffe066;color:#222;border-radius:3px;padding:0 1px}
 @media (orientation:landscape) and (max-height:520px){.qs{order:0;flex:1 1 0;min-width:0}.qs input{height:32px}}
 @media (orientation:landscape) and (max-height:520px){#app.v-matrix .tl-t>span{display:none}}
+/* touch targets: bigger hit area without growing the card */
+.chk,.handle{position:relative}
+.chk::after,.handle::after{content:"";position:absolute;inset:-9px -6px}
+.btn,.chip{min-height:42px}
+.chk-row{display:flex;gap:10px;align-items:center;margin-top:10px;font-size:14px}
+.chk-row input{width:20px;height:20px}
+.sn{display:none}
+/* compact cards: one line, status shown by colour (+ Santa) */
+@media (max-width:699px) and (orientation:portrait),(orientation:landscape) and (max-height:520px){
+  #app.v-matrix.compact .tl{display:none}
+  #app.v-matrix.compact .sn{display:inline-block;margin-right:1px;vertical-align:middle;font-size:.72em}
+  #app.v-matrix.compact .task[data-due=late] .tx{color:var(--q1);font-weight:600}
+  #app.v-matrix.compact .task[data-due=soon] .tx{color:var(--q3);font-weight:600}
+  #app.v-matrix.compact .task{padding-top:5px;padding-bottom:5px}
+}
+.tg[data-name]{cursor:pointer}
+.tt:focus-visible,.ttl:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:8px}
+@media (min-height:521px){.seg button{min-height:36px}}
 </style>
 </head>
 <body>
