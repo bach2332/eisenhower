@@ -312,6 +312,14 @@ mark{background:#ffe066;color:#222;border-radius:3px;padding:0 1px}
 .bmeta .late{color:var(--q1);font-weight:700}.bmeta .soon{color:var(--q3);font-weight:700}
 .bmain:focus-visible{outline:2px solid var(--accent)}
 #mood:not(:empty){cursor:pointer}
+/* completion celebration */
+#fx{position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden}
+.fx-card{position:fixed;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:12px;background:var(--card);border:2px solid var(--c);box-shadow:0 0 18px color-mix(in srgb,var(--c) 55%,transparent),0 10px 30px rgba(0,0,0,.25);font-weight:600;font-size:14px;overflow:hidden;white-space:nowrap;will-change:transform}
+.fx-chk{flex:none;width:22px;height:22px;border-radius:50%;background:var(--c);color:#fff;display:grid;place-items:center;font-size:13px}
+.fx-t{overflow:hidden;text-overflow:ellipsis}
+.fx-ring{position:fixed;width:44px;height:44px;border-radius:50%;border:3px solid var(--c);will-change:transform}
+.fx-p{position:fixed;display:block;will-change:transform}
+.fx-p.emo{font-style:normal;line-height:1}
 </style>
 </head>
 <body>

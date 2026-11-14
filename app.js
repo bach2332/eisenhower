@@ -373,7 +373,7 @@ function openBrief() {
       : '<p class="empty">Nothing overdue or due today 🎉</p><div class="acts"><span></span><button class="btn primary" data-act="close">Nice</button></div>'}`, () => {
     document.querySelectorAll('#panel .brow').forEach(r => {
       const id = r.dataset.id;
-      r.querySelector('[data-bchk]').onclick = () => { toggle(id); openBrief(); };
+      r.querySelector('[data-bchk]').onclick = () => { toggle(id, r); setTimeout(openBrief, 60); };
       const ed = r.querySelector('[data-bedit]');
       ed.onclick = () => openEdit(id);
       ed.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(id); } };
@@ -578,6 +578,7 @@ function openSettings() {
     </div>
     <div class="lbl">Display &amp; data</div>
     <label class="chk-row"><input type="checkbox" id="s-compact" ${C.compact === false ? '' : 'checked'}> Compact cards in Matrix (one line, status shown by colour)</label>
+    <label class="chk-row"><input type="checkbox" id="s-fx" ${C.fx === false ? '' : 'checked'}> Celebration effect when a task is completed 🎉</label>
     <label class="chk-row"><input type="checkbox" id="s-brief" ${C.brief === false ? '' : 'checked'}> Show “Today’s focus” (overdue + due today) when the app opens</label>
     <div class="lbl">Auto-promote tasks due within (Next → Now, Maybe → Hand off)</div>
     <select id="s-promo">${[[0, 'Off'], [1, '1 day'], [2, '2 days'], [3, '3 days'], [5, '5 days']].map(([v, l]) => `<option value="${v}" ${(C.autoPromote === undefined ? 2 : +C.autoPromote) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
@@ -594,6 +595,7 @@ function openSettings() {
     </div>`, () => {
     const msg = $('#s-msg');
     $('#s-compact').onchange = e => { setC({ compact: e.target.checked }); render(); };
+    $('#s-fx').onchange = e => { setC({ fx: e.target.checked }); };
     $('#s-brief').onchange = e => { setC({ brief: e.target.checked }); };
     $('#s-promo').onchange = e => { setC({ autoPromote: +e.target.value }); const mv = promote(); if (mv.length) { D.rev++; D.dirty = true; saveData(); render(); schedulePush(); announcePromo(mv); } };
     $('#s-auto').onchange = e => { setC({ autoClear: +e.target.value }); const n = tidy(); if (n) { saveData(); render(); schedulePush(); toast(n + ' old done task(s) cleared'); } };
@@ -767,7 +769,63 @@ function updateSyncUI() {
 }
 
 /* ---------- actions ---------- */
-function toggle(id) {
+/* ---------- celebration: the card pops, confetti bursts, the ghost of the task flies down into Done ---------- */
+function celebrate(src, q, title) {
+  if (C.fx === false || !src || !src.getBoundingClientRect) return;
+  const r = src.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  try { navigator.vibrate && navigator.vibrate(18); } catch (_) { /* ignore */ }
+  let layer = $('#fx');
+  if (!layer) { layer = document.createElement('div'); layer.id = 'fx'; document.body.appendChild(layer); }
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const dn = $('.donesec');
+  const tr = dn && dn.getBoundingClientRect();
+  const tx = tr && tr.height ? tr.left + tr.width / 2 : innerWidth / 2;
+  const ty = tr && tr.height ? tr.top + Math.min(tr.height, 40) / 2 : innerHeight - 30;
+  const dx = tx - cx, dy = ty - cy;
+  const ghost = document.createElement('div');
+  ghost.className = 'fx-card';
+  ghost.style.cssText = `left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px;--c:var(--${q})`;
+  ghost.innerHTML = `<span class="fx-chk">✓</span><span class="fx-t">${esc(title)}</span>`;
+  layer.appendChild(ghost);
+  const fly = ghost.animate([
+    { transform: 'translate(0,0) scale(1)', opacity: 1, offset: 0 },
+    { transform: 'translate(0,-8px) scale(1.14)', opacity: 1, offset: .2, easing: 'ease-out' },
+    { transform: `translate(${dx * .45}px,${dy * .3}px) scale(.62) rotate(-7deg)`, opacity: 1, offset: .58, easing: 'ease-in' },
+    { transform: `translate(${dx}px,${dy}px) scale(.1) rotate(9deg)`, opacity: 0, offset: 1 },
+  ], { duration: 1000, fill: 'forwards' });
+  // shock ring + confetti at the moment of the pop
+  const burstAt = 190;
+  const ring = document.createElement('div');
+  ring.className = 'fx-ring'; ring.style.cssText = `left:${cx}px;top:${cy}px;--c:var(--${q})`;
+  layer.appendChild(ring);
+  ring.animate([{ transform: 'translate(-50%,-50%) scale(.2)', opacity: .9 }, { transform: 'translate(-50%,-50%) scale(5)', opacity: 0 }], { duration: 650, delay: burstAt, fill: 'both' }).onfinish = () => ring.remove();
+  const COL = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#facc15'];
+  const EMO = ['🎉', '✨', '⭐', '🎊'];
+  for (let i = 0; i < 34; i++) {
+    const el = document.createElement('i');
+    const emo = i % 9 === 0;
+    el.className = 'fx-p' + (emo ? ' emo' : '');
+    const sz = emo ? 18 + Math.random() * 8 : 6 + Math.random() * 6;
+    if (emo) el.textContent = EMO[i % EMO.length];
+    else { el.style.background = COL[i % COL.length]; el.style.borderRadius = Math.random() < .4 ? '50%' : '2px'; el.style.width = sz + 'px'; el.style.height = sz * (Math.random() < .5 ? 1 : .55) + 'px'; }
+    el.style.left = cx + 'px'; el.style.top = cy + 'px';
+    layer.appendChild(el);
+    const ang = Math.random() * Math.PI * 2, sp = 70 + Math.random() * 150;
+    const vx = Math.cos(ang) * sp, vy = Math.sin(ang) * sp - 40, rot = (Math.random() - .5) * 900;
+    el.animate([
+      { transform: 'translate(-50%,-50%) scale(.3)', opacity: 1, offset: 0 },
+      { transform: `translate(calc(-50% + ${vx * .55}px),calc(-50% + ${vy * .55}px)) rotate(${rot / 2}deg) scale(1)`, opacity: 1, offset: .4, easing: 'ease-out' },
+      { transform: `translate(calc(-50% + ${vx}px),calc(-50% + ${vy + 140}px)) rotate(${rot}deg) scale(.7)`, opacity: 0, offset: 1, easing: 'ease-in' },
+    ], { duration: 750 + Math.random() * 450, delay: burstAt + Math.random() * 60, fill: 'both' }).onfinish = () => el.remove();
+  }
+  fly.onfinish = () => {
+    ghost.remove();
+    const d2 = $('.donesec');
+    if (d2) d2.animate([{ transform: 'scale(1)', boxShadow: '0 0 0 0 rgba(16,185,129,0)' }, { transform: 'scale(1.025)', boxShadow: '0 0 0 6px rgba(16,185,129,.35)', offset: .4 }, { transform: 'scale(1)', boxShadow: '0 0 0 0 rgba(16,185,129,0)' }], { duration: 520 });
+  };
+}
+function toggle(id, src) {
   const t = find(id);
   if (!t) return;
   if (t.done) {
@@ -775,6 +833,8 @@ function toggle(id) {
     patch(id, { done: false, doneAt: null, doneFrom: null });
     toast('Task restored', () => patch(id, { done: true, doneAt: oldAt, doneFrom: oldFrom }));
   } else {
+    if (!src) src = [...document.querySelectorAll(`[data-id="${id}"]`)].find(e => e.offsetParent && e.getBoundingClientRect().width);
+    celebrate(src && (src.closest('.task,.brow') || src), t.q, t.title);
     patch(id, { done: true, doneAt: Date.now(), doneFrom: t.q });
     toast('Task completed ✓', () => patch(id, { done: false, doneAt: null, doneFrom: null }));
   }
@@ -788,7 +848,7 @@ document.addEventListener('click', e => {
   const row = a.closest('[data-id]');
   const id = row && row.dataset.id;
   switch (a.dataset.act) {
-    case 'toggle': toggle(id); break;
+    case 'toggle': toggle(id, row); break;
     case 'edit': openEdit(id); break;
     case 'view': setC({ view: a.dataset.v }); render(); window.scrollTo(0, 0); break;
     case 'add': openAdd(); break;
