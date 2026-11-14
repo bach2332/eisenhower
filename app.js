@@ -342,6 +342,8 @@ const MOODS = {
   3: '😌 Wednesday — comfy',
   4: '😄 Thursday — no-mental day',
   5: '🏠 Friday — remote day',
+  6: '🛋️ Saturday — chill at home',
+  0: '🏡 Sunday — rest & recharge',
 };
 let shownDay = '';
 function applyDay() {
@@ -352,6 +354,39 @@ function applyDay() {
   const changed = shownDay && shownDay !== k;
   shownDay = k;
   if (changed) { const mv = runPromote(); render(); announcePromo(mv); } // a new day started while the app stayed open: refresh deadline labels
+}
+
+/* ---------- today's focus pop-up: overdue + due today ---------- */
+function briefTasks() {
+  return live().filter(t => !t.done && t.due && dayDiff(t.due, today()) <= 0)
+    .sort((a, b) => a.due.localeCompare(b.due) || ORDER.indexOf(a.q) - ORDER.indexOf(b.q));
+}
+function openBrief() {
+  const L = briefTasks();
+  const late = L.filter(t => dayDiff(t.due, today()) < 0).length, now = L.length - late;
+  const rows = L.map(t => { const i = dueInfo(t); return `<div class="brow" data-id="${t.id}" style="--c:var(--${t.q})">
+    <button class="bchk" data-bchk aria-label="Mark done">${CHECK}</button>
+    <div class="bmain" data-bedit tabindex="0" role="button"><span class="tx">${esc(t.title)}</span><span class="bmeta"><i></i>${QN[t.q]} · <span class="${i.cls}">${i.txt}</span></span></div></div>`; }).join('');
+  openSheet(`<div class="sh"><b>🎯 Today’s focus</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
+    ${L.length ? `<p class="brief-sub">${[late ? late + ' overdue' : '', now ? now + ' due today' : ''].filter(Boolean).join(' · ')} — tap ○ when done, tap a task to edit.</p>${rows}
+    <div class="acts"><span></span><button class="btn primary" data-act="close">Got it</button></div>`
+      : '<p class="empty">Nothing overdue or due today 🎉</p><div class="acts"><span></span><button class="btn primary" data-act="close">Nice</button></div>'}`, () => {
+    document.querySelectorAll('#panel .brow').forEach(r => {
+      const id = r.dataset.id;
+      r.querySelector('[data-bchk]').onclick = () => { toggle(id); openBrief(); };
+      const ed = r.querySelector('[data-bedit]');
+      ed.onclick = () => openEdit(id);
+      ed.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(id); } };
+    });
+  });
+}
+function maybeBrief() { // once per browser session and day, only when there is something to show
+  if (C.brief === false || sheetOpen) return;
+  const k = 'eisen.brief';
+  try { if (sessionStorage.getItem(k) === today()) return; } catch (_) { /* ignore */ }
+  if (!briefTasks().length) return;
+  try { sessionStorage.setItem(k, today()); } catch (_) { /* ignore */ }
+  openBrief();
 }
 
 /* ---------- sheets ---------- */
@@ -543,6 +578,7 @@ function openSettings() {
     </div>
     <div class="lbl">Display &amp; data</div>
     <label class="chk-row"><input type="checkbox" id="s-compact" ${C.compact === false ? '' : 'checked'}> Compact cards in Matrix (one line, status shown by colour)</label>
+    <label class="chk-row"><input type="checkbox" id="s-brief" ${C.brief === false ? '' : 'checked'}> Show “Today’s focus” (overdue + due today) when the app opens</label>
     <div class="lbl">Auto-promote tasks due within (Next → Now, Maybe → Hand off)</div>
     <select id="s-promo">${[[0, 'Off'], [1, '1 day'], [2, '2 days'], [3, '3 days'], [5, '5 days']].map(([v, l]) => `<option value="${v}" ${(C.autoPromote === undefined ? 2 : +C.autoPromote) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
     <div class="lbl">Auto-clear done tasks after</div>
@@ -558,6 +594,7 @@ function openSettings() {
     </div>`, () => {
     const msg = $('#s-msg');
     $('#s-compact').onchange = e => { setC({ compact: e.target.checked }); render(); };
+    $('#s-brief').onchange = e => { setC({ brief: e.target.checked }); };
     $('#s-promo').onchange = e => { setC({ autoPromote: +e.target.value }); const mv = promote(); if (mv.length) { D.rev++; D.dirty = true; saveData(); render(); schedulePush(); announcePromo(mv); } };
     $('#s-auto').onchange = e => { setC({ autoClear: +e.target.value }); const n = tidy(); if (n) { saveData(); render(); schedulePush(); toast(n + ' old done task(s) cleared'); } };
     $('#s-export').onclick = () => {
@@ -717,6 +754,7 @@ async function sync() {
     updateSyncUI();
     render();
     announcePromo(promoted);
+    maybeBrief();
     if (!lastErr && (again || D.dirty)) { again = false; schedulePush(); }
   }
 }
@@ -943,6 +981,7 @@ if (configured()) sync();
 if (/[?&]add\b/.test(location.search)) {
   try { history.replaceState(null, '', location.pathname); } catch (_) { /* ignore */ }
   openAdd();
-}
+} else maybeBrief();
+$('#mood').addEventListener('click', () => { if (!sheetOpen) openBrief(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
