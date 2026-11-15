@@ -29,6 +29,14 @@ const parseYmd = s => { const [y, m, d] = s.split('-').map(Number); return new D
 const dayDiff = (a, b) => Math.round((parseYmd(a) - parseYmd(b)) / 864e5); // a - b, in days
 const offsetDay = n => ymd(new Date(Date.now() + n * 864e5));
 const fmtShort = s => { const [y, m, d] = s.split('-'); return `${d}/${m}` + (y !== String(new Date().getFullYear()) ? '/' + y : ''); };
+const REPEATS = { daily: 'Every day', weekly: 'Every week', monthly: 'Every month' };
+function stepYmd(s, rep, k) { // the k-th occurrence after s
+  const d = parseYmd(s);
+  if (rep === 'monthly') { const day = d.getDate(); d.setDate(1); d.setMonth(d.getMonth() + k); d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); }
+  else d.setDate(d.getDate() + k * (rep === 'weekly' ? 7 : 1));
+  return ymd(d);
+}
+const nextOccurrence = (due, rep) => { const tk = today(); let k = 1, c = stepYmd(due, rep, k); while (c <= tk && k < 800) c = stepYmd(due, rep, ++k); return c; };
 const fmtTs = ts => fmtShort(ymd(new Date(ts)));
 const uid = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 function lsGet(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
@@ -54,6 +62,10 @@ function clean(t) {
     updatedAt: +t.updatedAt || 0,
     deleted: !!t.deleted,
     promotedFor: t.promotedFor ? String(t.promotedFor) : null,
+    repeat: ['daily', 'weekly', 'monthly'].includes(t.repeat) ? t.repeat : null,
+    reopenOn: isDate(t.reopenOn) ? t.reopenOn : null,
+    nextDue: isDate(t.nextDue) ? t.nextDue : null,
+    homeQ: ['backlog', 'q1', 'q2', 'q3', 'q4'].includes(t.homeQ) ? t.homeQ : null,
     tags: Array.isArray(t.tags) ? [...new Set(t.tags.map(String))].slice(0, 20) : [],
   };
 }
@@ -99,29 +111,44 @@ function mutate(fn) {
    Next -> Now, Maybe -> Hand off. Backlog (unsorted) is left alone. Each task is promoted once per deadline,
    so putting it back by hand (or via Undo) sticks. */
 const PROMO = { q2: 'q1', q4: 'q3' };
+function reopenDue() { // repeating tasks that were completed come back to their home board when their next cycle starts
+  const now = clock(), tk = today(), back = [];
+  D.tasks.forEach(t => {
+    if (t.deleted || !t.done || !t.repeat || !t.reopenOn || t.reopenOn > tk) return;
+    let due = t.nextDue || nextOccurrence(t.due || tk, t.repeat), k = 0;
+    while (due < tk && k++ < 800) due = stepYmd(due, t.repeat, 1);
+    Object.assign(t, { done: false, doneAt: null, doneFrom: null, q: t.homeQ || t.doneFrom || t.q, due, start: null, order: null, promotedFor: null, homeQ: null, reopenOn: null, nextDue: null, updatedAt: now });
+    back.push(t.id);
+  });
+  return back;
+}
 function promote() {
+  const re = reopenDue();
   const days = C.autoPromote === undefined ? 2 : +C.autoPromote;
-  if (!days) return [];
   const now = clock(), lim = today(), moved = [];
+  moved.reopened = re;
+  if (!days) return moved;
   D.tasks.forEach(t => {
     if (t.deleted || t.done || !t.due || !PROMO[t.q] || t.promotedFor === t.due) return;
     if (dayDiff(t.due, lim) > days) return;
     moved.push({ id: t.id, from: t.q });
+    t.homeQ = t.homeQ || t.q; // remember the board it really belongs to (repeating tasks return there)
     t.q = PROMO[t.q]; t.order = null; t.promotedFor = t.due; t.updatedAt = now;
   });
   return moved;
 }
 function announcePromo(mv) {
+  if (mv && mv.reopened && mv.reopened.length && !mv.length) { toast(`🔁 ${mv.reopened.length} repeating task${mv.reopened.length > 1 ? 's are' : ' is'} back on your board`); return; }
   if (!mv || !mv.length) return;
   const to = id => { const t = D.tasks.find(x => x.id === id); return t ? QN[t.q] : ''; };
   const txt = mv.length === 1
     ? `⚡ “${D.tasks.find(x => x.id === mv[0].id).title.slice(0, 28)}” is due soon → moved to ${to(mv[0].id)}`
     : `⚡ ${mv.length} tasks due soon moved up (${[...new Set(mv.map(m => QN[m.from] + ' → ' + to(m.id)))].join(', ')})`;
-  toast(txt, () => mutate(() => { const now = clock(); mv.forEach(m => { const t = D.tasks.find(x => x.id === m.id); if (t) { t.q = m.from; t.order = null; t.updatedAt = now; } }); }));
+  toast(txt, () => mutate(() => { const now = clock(); mv.forEach(m => { const t = D.tasks.find(x => x.id === m.id); if (t) { t.q = m.from; t.order = null; t.homeQ = null; t.updatedAt = now; } }); }));
 }
 function runPromote() { // outside of a user edit: load, new day, after sync
   const mv = promote();
-  if (mv.length) { D.rev++; D.dirty = true; saveData(); schedulePush(); }
+  if (mv.length || mv.reopened.length) { D.rev++; D.dirty = true; saveData(); schedulePush(); }
   return mv;
 }
 function patch(id, o) {
@@ -132,8 +159,8 @@ function patch(id, o) {
 function addTask(f) {
   const now = clock();
   mutate(() => D.tasks.push({
-    id: uid(), title: f.title, detail: f.detail || '', promotedFor: f.due || null, q: f.q, done: false, doneAt: null, doneFrom: null,
-    start: null, due: f.due || null, created: now, updatedAt: now, deleted: false, tags: f.tags || [],
+    id: uid(), title: f.title, detail: f.detail || '', promotedFor: f.due || null, repeat: f.repeat || null, reopenOn: null, nextDue: null, homeQ: null, q: f.q, done: false, doneAt: null, doneFrom: null,
+    start: null, due: f.due || (f.repeat ? today() : null), created: now, updatedAt: now, deleted: false, tags: f.tags || [],
   }));
 }
 function addTag(name, color) {
@@ -183,7 +210,7 @@ function timelineHTML(t) {
   return `<div class="tl ${info.cls}"><div class="tl-t"><span>${fmtShort(startStr)} → ${fmtShort(t.due)}</span><b>${info.n <= 0 ? SANTA : ''}${info.txt}</b></div><div class="track"><i style="width:${pct}%"></i></div></div>`;
 }
 function doneText(t) {
-  return (t.doneAt ? fmtTs(t.doneAt) : '') + (t.doneFrom ? ' · from ' + QN[t.doneFrom] : '');
+  return (t.doneAt ? fmtTs(t.doneAt) : '') + (t.doneFrom ? ' · from ' + QN[t.doneFrom] : '') + (t.repeat && t.reopenOn ? ' · 🔁 back ' + fmtShort(t.reopenOn) : '');
 }
 const doneInfo = t => t.done ? `<div class="doneinfo">Done ${esc(doneText(t))}</div>` : '';
 function dueCell(t) {
@@ -220,6 +247,7 @@ function hl(text) { // escape + highlight the search text
   while ((j = lo.indexOf(q, i)) !== -1) { out += esc(text.slice(i, j)) + '<mark>' + esc(text.slice(j, j + q.length)) + '</mark>'; i = j + q.length; }
   return out + esc(text.slice(i));
 }
+const RPT = '<span class="rpt" title="Repeats"> 🔁</span>';
 const tagsHTML = t => {
   const g = taskTags(t);
   return g.length ? `<div class="tgs">${g.map(x => `<span class="tg" data-name="${esc(x.name)}" title="Filter by this tag" style="--tc:${x.color}"><i></i><span class="n">${esc(x.name)}</span></span>`).join('')}</div>` : '';
@@ -233,7 +261,7 @@ function taskHTML(t) {
   const di = !t.done && t.due ? dueInfo(t) : null;
   return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}"${di && (di.cls) ? ` data-due="${di.cls}"` : ''}${tg.length ? ` data-tg style="--tg1:${tg[0].color}"` : ''}>
     <button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button>
-    <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${hl(t.title)}</span>${hasD ? NOTE : ''}${tagsHTML(t)}
+    <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}</span>${hasD ? NOTE : ''}${tagsHTML(t)}
       ${hasD ? `<div class="prev">${esc(firstLine(t.detail))}</div>` : ''}
       ${t.done ? doneInfo(t) : timelineHTML(t)}</div>
     ${t.done ? '' : `<span class="handle" data-drag aria-label="Drag to move">${HANDLE}</span>`}
@@ -284,7 +312,7 @@ function tableBodyHTML() {
   const opts = cur => ORDER.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${QN[k]}</option>`).join('');
   const row = t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
       <td><button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button></td>
-      <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${hl(t.title)}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
+      <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${hl(t.title)}${t.repeat ? RPT : ''}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
       <td class="wide">${tagsHTML(t) || '<span class="muted">—</span>'}</td>
       <td><select class="qsel">${opts(t.q)}</select></td>
       <td class="wide">${dueCell(t)}</td>
@@ -454,6 +482,7 @@ function tagPicker(sel) {
 function bindTagPicker(sel) {
   document.querySelectorAll('#panel [data-tg]').forEach(b => { b.onclick = () => { const id = b.dataset.tg; sel.has(id) ? sel.delete(id) : sel.add(id); b.classList.toggle('on', sel.has(id)); }; });
 }
+const repeatSelect = (id, val) => `<select id="${id}"><option value="">Doesn’t repeat</option>${Object.entries(REPEATS).map(([k, l]) => `<option value="${k}" ${val === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
 function openAdd(preQ) {
   const tsel = new Set();
   let q = preQ || 'backlog';
@@ -463,6 +492,7 @@ function openAdd(preQ) {
     <textarea id="f-detail" rows="3" maxlength="2000" placeholder="Detail (optional)" hidden></textarea>
     <div class="lbl">Put in</div>${chips(q)}
     <div class="lbl">Deadline (optional)</div>${dateField('f-due', '', true)}
+    <div class="lbl">Repeat</div>${repeatSelect('f-rep', null)}
     <div class="lbl">Tags (optional)</div>${tagPicker(tsel)}
     <div class="acts"><span id="f-msg" class="msg"></span><button class="btn primary" id="f-add">Add</button></div>`, () => {
     const ti = $('#f-title'), de = $('#f-detail');
@@ -474,9 +504,10 @@ function openAdd(preQ) {
     const go = () => {
       const v = ti.value.trim();
       if (!v) { ti.focus(); return; }
-      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, tags: [...tsel] });
+      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, repeat: $('#f-rep').value || null, tags: [...tsel] });
       ti.value = ''; de.value = ''; de.hidden = true; $('#f-more').textContent = '+ Add detail'; $('#f-due').value = '';
       $('#f-due').dispatchEvent(new Event('input', { bubbles: true }));
+      $('#f-rep').value = '';
       tsel.clear(); document.querySelectorAll('#panel [data-tg]').forEach(b => b.classList.remove('on'));
       $('#f-msg').textContent = 'Added ✓ → ' + QN[q];
       toast(`✓ Task added to ${QN[q]}: ${v.length > 28 ? v.slice(0, 28) + '…' : v}`, null, true);
@@ -500,6 +531,7 @@ function openEdit(id) {
     <div class="lbl">Move to</div>${chips(q)}
     <div class="lbl">Start date (optional — default: the day it was created)</div>${dateField('e-start', t.start, false)}
     <div class="lbl">Deadline</div>${dateField('e-due', t.due, true)}
+    <div class="lbl">Repeat</div>${repeatSelect('e-rep', t.repeat)}
     <div class="lbl">Tags</div>${tagPicker(tsel)}
     ${t.done ? `<p class="hint">Done ${esc(doneText(t))}</p>` : ''}
     <div class="acts"><button class="btn danger" id="e-del">Delete</button><button class="btn primary" id="e-save">Save</button></div>`, () => {
@@ -509,7 +541,9 @@ function openEdit(id) {
     const save = () => {
       const title = $('#e-title').value.trim();
       if (!title) return;
-      patch(id, { title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, promotedFor: q === t.q ? t.promotedFor : ($('#e-due').value || null), start: $('#e-start').value || null, due: $('#e-due').value || null, tags: [...tsel] });
+      const rep = $('#e-rep').value || null;
+      const dueV = $('#e-due').value || (rep ? today() : null);
+      patch(id, { repeat: rep, reopenOn: rep ? t.reopenOn : null, nextDue: rep ? t.nextDue : null, homeQ: q === t.q ? t.homeQ : null, title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, promotedFor: q === t.q ? t.promotedFor : ($('#e-due').value || null), start: $('#e-start').value || null, due: dueV, tags: [...tsel] });
       closeSheet();
     };
     $('#e-save').onclick = save;
@@ -597,7 +631,7 @@ function openSettings() {
     $('#s-compact').onchange = e => { setC({ compact: e.target.checked }); render(); };
     $('#s-fx').onchange = e => { setC({ fx: e.target.checked }); };
     $('#s-brief').onchange = e => { setC({ brief: e.target.checked }); };
-    $('#s-promo').onchange = e => { setC({ autoPromote: +e.target.value }); const mv = promote(); if (mv.length) { D.rev++; D.dirty = true; saveData(); render(); schedulePush(); announcePromo(mv); } };
+    $('#s-promo').onchange = e => { setC({ autoPromote: +e.target.value }); const mv = promote(); if (mv.length || mv.reopened.length) { D.rev++; D.dirty = true; saveData(); render(); schedulePush(); announcePromo(mv); } };
     $('#s-auto').onchange = e => { setC({ autoClear: +e.target.value }); const n = tidy(); if (n) { saveData(); render(); schedulePush(); toast(n + ' old done task(s) cleared'); } };
     $('#s-export').onclick = () => {
       const a = document.createElement('a');
@@ -690,7 +724,7 @@ function tidy() {
   const days = +C.autoClear || 0;
   if (!days) return fixed;
   const cut = Date.now() - days * 864e5, now = clock();
-  const old = D.tasks.filter(t => !t.deleted && t.done && t.doneAt && t.doneAt < cut);
+  const old = D.tasks.filter(t => !t.deleted && t.done && !t.repeat && t.doneAt && t.doneAt < cut);
   old.forEach(t => { t.deleted = true; t.updatedAt = now; });
   if (old.length) { D.rev++; D.dirty = true; }
   return old.length + fixed;
@@ -830,13 +864,23 @@ function toggle(id, src) {
   if (!t) return;
   if (t.done) {
     const oldAt = t.doneAt, oldFrom = t.doneFrom;
-    patch(id, { done: false, doneAt: null, doneFrom: null });
-    toast('Task restored', () => patch(id, { done: true, doneAt: oldAt, doneFrom: oldFrom }));
+    const oldRe = t.reopenOn, oldNd = t.nextDue;
+    patch(id, { done: false, doneAt: null, doneFrom: null, reopenOn: null, nextDue: null });
+    toast('Task restored', () => patch(id, { done: true, doneAt: oldAt, doneFrom: oldFrom, reopenOn: oldRe, nextDue: oldNd }));
   } else {
     if (!src) src = [...document.querySelectorAll(`[data-id="${id}"]`)].find(e => e.offsetParent && e.getBoundingClientRect().width);
     celebrate(src && (src.closest('.task,.brow') || src), t.q, t.title);
+    if (t.repeat) {
+      const tk = today(), base = t.due || tk;
+      const nextDue = nextOccurrence(base, t.repeat);
+      const dayAfter = d => { const x = parseYmd(d); x.setDate(x.getDate() + 1); return ymd(x); };
+      const reopenOn = [dayAfter(base), dayAfter(tk)].sort().pop(); // the day after this cycle's deadline (or tomorrow if done late)
+      patch(id, { done: true, doneAt: Date.now(), doneFrom: t.q, homeQ: t.homeQ || t.q, reopenOn, nextDue, due: base });
+      toast(`Done ✓ — 🔁 comes back ${fmtShort(reopenOn)} (due ${fmtShort(nextDue)})`, () => patch(id, { done: false, doneAt: null, doneFrom: null, reopenOn: null, nextDue: null }));
+    } else {
     patch(id, { done: true, doneAt: Date.now(), doneFrom: t.q });
     toast('Task completed ✓', () => patch(id, { done: false, doneAt: null, doneFrom: null }));
+    }
   }
 }
 
@@ -870,7 +914,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   const t = e.target;
-  if (t.matches && t.matches('.qsel')) { const r = find(t.closest('[data-id]').dataset.id); patch(r.id, { q: t.value, order: null, promotedFor: r.due }); }
+  if (t.matches && t.matches('.qsel')) { const r = find(t.closest('[data-id]').dataset.id); patch(r.id, { q: t.value, order: null, promotedFor: r.due, homeQ: null }); }
   else if (t.id === 't-q') { setC({ fq: t.value }); render(); }
   else if (t.id === 't-tag') { setC({ ftag: t.value }); render(); }
   else if (t.id === 't-group') { setC({ group: t.value }); render(); }
@@ -913,7 +957,7 @@ function placeTask(id, target, ids, i) {
     if (list.some(x => x.order == null)) list.forEach((x, k) => { x.order = (k + 1) * 1000; x.updatedAt = now; });
     const p = list[i - 1], n = list[i];
     t.order = p && n ? (p.order + n.order) / 2 : n ? n.order - 1000 : p ? p.order + 1000 : 1000;
-    t.q = target; t.updatedAt = now; t.promotedFor = t.due;
+    t.q = target; t.updatedAt = now; t.promotedFor = t.due; t.homeQ = null;
   });
 }
 function moveGhost() {
