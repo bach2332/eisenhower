@@ -556,6 +556,32 @@ function openEdit(id) {
   });
 }
 
+// "Clear done" is destructive, so it needs a typed confirmation
+function confirmClearDone() {
+  const done = live().filter(t => t.done);
+  const ids = done.filter(t => !t.repeat).map(t => t.id); // repeating tasks come back by themselves, so they are kept
+  const kept = done.length - ids.length;
+  if (!ids.length) { toast(kept ? 'Only repeating tasks are in Done — they come back by themselves' : 'Nothing to clear'); return; }
+  openSheet(`<div class="sh"><b>Clear done tasks?</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
+    <p class="hint"><b>${ids.length}</b> completed task${ids.length > 1 ? 's' : ''} will be deleted${kept ? ` (${kept} repeating task${kept > 1 ? 's are' : ' is'} kept)` : ''}. You can undo right after, but not later.</p>
+    <div class="lbl">Type <b>delete</b> to confirm</div>
+    <input id="cd-in" type="text" placeholder="delete" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="done">
+    <div class="acts"><button class="btn" data-act="close">Cancel</button><button class="btn danger" id="cd-ok" disabled>Delete ${ids.length}</button></div>`, () => {
+    const inp = $('#cd-in'), ok = $('#cd-ok');
+    const valid = () => inp.value.trim().toLowerCase() === 'delete';
+    inp.oninput = () => { ok.disabled = !valid(); };
+    const go = () => {
+      if (!valid()) return;
+      closeSheet();
+      mutate(() => { const now = clock(); D.tasks.forEach(t => { if (ids.includes(t.id)) { t.deleted = true; t.updatedAt = now; } }); });
+      toast(ids.length + ' done task(s) cleared', () => mutate(() => { const now = clock(); D.tasks.forEach(t => { if (ids.includes(t.id)) { t.deleted = false; t.updatedAt = now; } }); }));
+    };
+    ok.onclick = go;
+    inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+    setTimeout(() => inp.focus(), 50);
+  });
+}
+
 function openTags() {
   const rows = liveTags().map(g => {
     const n = live().filter(t => !t.done && (t.tags || []).includes(g.id)).length;
@@ -903,13 +929,7 @@ document.addEventListener('click', e => {
     case 'close': closeSheet(); break;
     case 'toggledone': setC({ showDone: !C.showDone }); render(); break;
     case 'status': setC({ status: a.dataset.v }); render(); break;
-    case 'cleardone': {
-      const ids = live().filter(t => t.done).map(t => t.id);
-      if (!ids.length) break;
-      mutate(() => { const now = clock(); D.tasks.forEach(t => { if (ids.includes(t.id)) { t.deleted = true; t.updatedAt = now; } }); });
-      toast(ids.length + ' done task(s) cleared', () => mutate(() => { const now = clock(); D.tasks.forEach(t => { if (ids.includes(t.id)) { t.deleted = false; t.updatedAt = now; } }); }));
-      break;
-    }
+    case 'cleardone': confirmClearDone(); break;
   }
 });
 document.addEventListener('change', e => {
