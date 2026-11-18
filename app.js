@@ -15,6 +15,7 @@ const K_DATA = 'eisen.data.v1', K_CFG = 'eisen.cfg.v1', FILE = 'tasks.json';
 
 const HANDLE = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><circle cx="6" cy="4" r="1.6"/><circle cx="12" cy="4" r="1.6"/><circle cx="6" cy="9" r="1.6"/><circle cx="12" cy="9" r="1.6"/><circle cx="6" cy="14" r="1.6"/><circle cx="12" cy="14" r="1.6"/></svg>';
 const CHECK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const EXPAND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>';
 const PLUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
 const NOTE = '<svg class="dtl" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>';
 
@@ -274,13 +275,15 @@ function matrixHTML() {
   const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   const backlog = act.filter(t => t.q === 'backlog').sort(cmpList);
   let h = `<section class="backlog-sec backlog" data-drop="backlog">
-    <div class="sec-h"><div class="nm"><b>Backlog</b><span class="cnt">${backlog.length}</span><small>Unsorted — hold ⠿ for 0.5 s, then drag to a quadrant</small></div></div>
+    <div class="sec-h"><div class="nm"><b>Backlog</b><span class="cnt">${backlog.length}</span><small>Unsorted — hold ⠿ for 0.5 s, then drag to a quadrant</small></div>
+      <button class="addq expq" data-act="expand" data-q="backlog" aria-label="Open Backlog full screen" title="Open in a dialog (or double-tap the title)">${EXPAND}</button></div>
     ${backlog.length ? backlog.map(taskHTML).join('') : '<p class="empty">Backlog is empty. Tap + to add a task.</p>'}
   </section><div class="matrix">`;
   for (const q of Q) {
     const items = act.filter(t => t.q === q.id).sort(cmpList);
     h += `<section class="quad ${q.id}" data-drop="${q.id}">
       <div class="sec-h"><div class="nm"><b>${q.name}</b><span class="cnt">${items.length}</span><small>${q.sub}</small></div>
+        <button class="addq expq" data-act="expand" data-q="${q.id}" aria-label="Open ${q.name} full screen" title="Open in a dialog (or double-tap the title)">${EXPAND}</button>
         <button class="addq" data-act="addq" data-q="${q.id}" aria-label="Add to ${q.name}">${PLUS}</button></div>
       <div class="list">${items.length ? items.map(taskHTML).join('') : '<p class="empty">Drop tasks here</p>'}</div>
     </section>`;
@@ -383,6 +386,47 @@ function applyDay() {
   shownDay = k;
   if (changed) { const mv = runPromote(); render(); announcePromo(mv); } // a new day started while the app stayed open: refresh deadline labels
 }
+
+/* ---------- one quadrant, big and readable (double-tap its title, or the ⤢ button) ---------- */
+function openQuad(q) {
+  const items = live().filter(t => !t.done && t.q === q && match(t)).sort(cmpList);
+  const rows = items.map(t => {
+    const i = t.due ? dueInfo(t) : null, tg = taskTags(t), dl = firstLine(t.detail);
+    return `<div class="brow qrow" data-id="${t.id}" style="--c:var(--${q === 'backlog' ? 'muted' : q})">
+      <button class="bchk" data-bchk aria-label="Mark done">${CHECK}</button>
+      <div class="bmain" data-bedit tabindex="0" role="button"><span class="tx">${i && i.n <= 0 ? '<span class="sn2">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}</span>
+        ${dl ? `<span class="qd">${esc(dl)}</span>` : ''}
+        <span class="bmeta">${i ? `<span class="${i.cls}">${i.txt}</span>` : '<span>No deadline</span>'}${tg.map(g => `<span class="tg" style="--tc:${g.color}"><i></i><span class="n">${esc(g.name)}</span></span>`).join('')}</span></div></div>`;
+  }).join('');
+  openSheet(`<div class="sh"><b>${QN[q]} <span class="cnt">${items.length}</span></b><button class="x" data-act="close" aria-label="Close">✕</button></div>
+    ${rows || '<p class="empty">Nothing here yet.</p>'}
+    <div class="acts"><button class="btn" id="qd-add">+ Add to ${QN[q]}</button><button class="btn primary" data-act="close">Close</button></div>`, () => {
+    document.querySelectorAll('#panel .qrow').forEach(r => {
+      const id = r.dataset.id;
+      r.querySelector('[data-bchk]').onclick = () => { toggle(id, r); setTimeout(() => openQuad(q), 60); };
+      const ed = r.querySelector('[data-bedit]');
+      ed.onclick = () => openEdit(id);
+      ed.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(id); } };
+    });
+    $('#qd-add').onclick = () => openAdd(q);
+  });
+}
+// double-tap / double-click on a section title opens it as a dialog
+let lastTap = null;
+document.addEventListener('pointerup', e => {
+  const h = e.target.closest && e.target.closest('#app.v-matrix .sec-h');
+  if (!h || e.target.closest('button') || sheetOpen) { lastTap = null; return; }
+  const sec = h.closest('[data-drop]'); if (!sec) return;
+  const now = Date.now();
+  if (lastTap && lastTap.q === sec.dataset.drop && now - lastTap.t < 400 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 40) {
+    lastTap = null; openQuad(sec.dataset.drop);
+    // the click that follows this pointerup would land on whatever the new dialog put under the finger: swallow it
+    const eat = ev => { ev.stopPropagation(); ev.preventDefault(); };
+    document.addEventListener('click', eat, true);
+    setTimeout(() => document.removeEventListener('click', eat, true), 350);
+  }
+  else lastTap = { q: sec.dataset.drop, t: now, x: e.clientX, y: e.clientY };
+});
 
 /* ---------- today's focus pop-up: overdue + due today ---------- */
 function briefTasks() {
@@ -923,6 +967,7 @@ document.addEventListener('click', e => {
     case 'view': setC({ view: a.dataset.v }); render(); window.scrollTo(0, 0); break;
     case 'add': openAdd(); break;
     case 'addq': openAdd(a.dataset.q); break;
+    case 'expand': openQuad(a.dataset.q); break;
     case 'tags': openTags(); break;
     case 'settings': openSettings(); break;
     case 'sync': configured() ? sync() : openSettings(); break;

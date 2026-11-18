@@ -321,6 +321,14 @@ mark{background:#ffe066;color:#222;border-radius:3px;padding:0 1px}
 .fx-p{position:fixed;display:block;will-change:transform}
 .fx-p.emo{font-style:normal;line-height:1}
 .rpt{font-size:.85em;opacity:.8}
+.expq{color:var(--muted);flex:0 0 auto;position:relative}
+.expq::after{content:"";position:absolute;inset:-4px}
+#app.v-matrix .expq{width:32px;height:32px}
+.sec-h{user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.qrow .tx{font-size:16.5px;line-height:1.35}
+.qrow .qd{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:13.5px;color:var(--muted);margin-top:2px}
+.qrow .bmeta{flex-wrap:wrap}
+.sn2{display:inline-block;font-size:.8em;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -341,7 +349,7 @@ mark{background:#ffe066;color:#222;border-radius:3px;padding:0 1px}
 </header>
 
 <main id="app"></main>
-<footer class="ver" id="ver"><span>Version 20261116</span><span id="mood"></span></footer>
+<footer class="ver" id="ver"><span>Version 20261118</span><span id="mood"></span></footer>
 
 <button class="fab" data-act="add" aria-label="Add task">
   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
