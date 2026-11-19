@@ -413,6 +413,25 @@ function applyDay() {
 }
 
 /* ---------- one quadrant, big and readable (double-tap its title, or the ⤢ button) ---------- */
+// plain-text (Markdown table) export of a list of tasks, meant to be pasted into an AI chat
+function tasksToText(list, title) {
+  const cell = v => String(v == null || v === '' ? '-' : v).replace(/\r?\n+/g, ' / ').replace(/\|/g, '\\|').trim();
+  const status = t => {
+    if (!t.due) return 'No deadline';
+    const n = dayDiff(t.due, today());
+    return n < 0 ? `Overdue ${-n} day${-n > 1 ? 's' : ''}` : n === 0 ? 'Due today' : `Due in ${n} day${n > 1 ? 's' : ''}`;
+  };
+  const rows = list.map((t, i) => '| ' + [i + 1, t.title, t.due || '', status(t), (t.progress || 0) + '%', taskTags(t).map(g => g.name).join(', '), t.repeat ? ({ daily: 'Every day', weekly: 'Every week', monthly: 'Every month' })[t.repeat] : '', t.start || '', t.created ? ymd(new Date(t.created)) : '', t.detail].map(cell).join(' | ') + ' |');
+  return `# ${title} (${list.length} task${list.length === 1 ? '' : 's'})\nExported: ${today()}\n\n| # | Title | Deadline | Status | Progress | Tags | Repeat | Start | Created | Detail |\n|---|---|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n`;
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall back below */ }
+  try {
+    const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand('copy'); ta.remove(); return ok;
+  } catch (e) { return false; }
+}
 function openQuad(q) {
   const items = live().filter(t => !t.done && t.q === q && match(t)).sort(cmpList);
   const rows = items.map(t => {
@@ -426,7 +445,12 @@ function openQuad(q) {
   }).join('');
   openSheet(`<div class="sh"><b>${QN[q]} <span class="cnt">${items.length}</span></b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     ${rows || '<p class="empty">Nothing here yet.</p>'}
-    <div class="acts"><button class="btn" id="qd-add">+ Add to ${QN[q]}</button><button class="btn primary" data-act="close">Close</button></div>`, () => {
+    <div class="acts"><button class="btn" id="qd-add">+ Add</button><button class="btn" id="qd-copy">📋 Copy all</button><button class="btn primary" data-act="close">Close</button></div>`, () => {
+    $('#qd-copy').onclick = async () => {
+      if (!items.length) { toast('Nothing to copy'); return; }
+      const ok = await copyText(tasksToText(items, 'Priority Matrix — ' + QN[q]));
+      toast(ok ? `📋 Copied ${items.length} task${items.length === 1 ? '' : 's'} — paste into your AI chat` : 'Copy failed — your browser blocked the clipboard');
+    };
     document.querySelectorAll('#panel .qrow').forEach(r => {
       const id = r.dataset.id;
       r.querySelector('[data-bchk]').onclick = () => { toggle(id, r); setTimeout(() => openQuad(q), 60); };
