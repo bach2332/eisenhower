@@ -63,6 +63,7 @@ function clean(t) {
     updatedAt: +t.updatedAt || 0,
     deleted: !!t.deleted,
     promotedFor: t.promotedFor ? String(t.promotedFor) : null,
+    progress: Math.min(100, Math.max(0, Math.round(+t.progress) || 0)),
     repeat: ['daily', 'weekly', 'monthly'].includes(t.repeat) ? t.repeat : null,
     reopenOn: isDate(t.reopenOn) ? t.reopenOn : null,
     nextDue: isDate(t.nextDue) ? t.nextDue : null,
@@ -160,7 +161,7 @@ function patch(id, o) {
 function addTask(f) {
   const now = clock();
   mutate(() => D.tasks.push({
-    id: uid(), title: f.title, detail: f.detail || '', promotedFor: f.due || null, repeat: f.repeat || null, reopenOn: null, nextDue: null, homeQ: null, q: f.q, done: false, doneAt: null, doneFrom: null,
+    id: uid(), title: f.title, detail: f.detail || '', promotedFor: f.due || null, progress: f.progress || 0, repeat: f.repeat || null, reopenOn: null, nextDue: null, homeQ: null, q: f.q, done: false, doneAt: null, doneFrom: null,
     start: null, due: f.due || (f.repeat ? today() : null), created: now, updatedAt: now, deleted: false, tags: f.tags || [],
   }));
 }
@@ -255,6 +256,29 @@ const tagsHTML = t => {
 };
 const firstLine = d => (d.split('\n').find(l => l.trim()) || '').trim();
 
+/* ---------- progress (0-100 %) ---------- */
+const pgOf = t => (t.done || !(t.progress > 0)) ? 0 : t.progress;
+const pgBar = t => pgOf(t) ? `<span class="pg" style="--p:${t.progress}%" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${t.progress}" aria-label="Progress ${t.progress}%"></span>` : '';
+const pgNum = t => pgOf(t) ? `<span class="pgn">${t.progress}%</span>` : '';
+function progressField(id, val) {
+  return `<div class="pfield"><input id="${id}" type="range" min="0" max="100" step="5" value="${val}" aria-label="Progress">
+    <label class="pnum"><input id="${id}-n" type="number" min="0" max="100" step="1" inputmode="numeric" value="${val}" aria-label="Progress percent">%</label>
+    <div class="chips">${[0, 25, 50, 75, 100].map(n => `<button type="button" class="chip" data-pg="${n}">${n}%</button>`).join('')}</div></div>`;
+}
+function bindProgress(id) {
+  const r = $('#' + id), n = $('#' + id + '-n'), f = r.closest('.pfield');
+  const set = v => {
+    v = Math.min(100, Math.max(0, Math.round(+v) || 0)); r.value = v; n.value = v;
+    f.querySelectorAll('[data-pg]').forEach(b => b.classList.toggle('on', +b.dataset.pg === v));
+  };
+  r.oninput = () => set(r.value);
+  n.oninput = () => { if (n.value !== '') set(n.value); };
+  n.onblur = () => set(n.value);
+  f.querySelectorAll('[data-pg]').forEach(b => { b.onclick = () => set(b.dataset.pg); });
+  set(r.value);
+  return () => Math.min(100, Math.max(0, Math.round(+n.value) || 0));
+}
+
 /* ---------- views ---------- */
 function taskHTML(t) {
   const hasD = !!t.detail;
@@ -262,9 +286,10 @@ function taskHTML(t) {
   const di = !t.done && t.due ? dueInfo(t) : null;
   return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}"${di && (di.cls) ? ` data-due="${di.cls}"` : ''}${tg.length ? ` data-tg style="--tg1:${tg[0].color}"` : ''}>
     <button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button>
-    <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}</span>${hasD ? NOTE : ''}${tagsHTML(t)}
+    <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}</span>${hasD ? NOTE : ''}${tagsHTML(t)}${pgNum(t)}
       ${hasD ? `<div class="prev">${esc(firstLine(t.detail))}</div>` : ''}
       ${t.done ? doneInfo(t) : timelineHTML(t)}</div>
+    ${pgBar(t)}
     ${t.done ? '' : `<span class="handle" data-drag aria-label="Drag to move">${HANDLE}</span>`}
   </div>`;
 }
@@ -315,7 +340,7 @@ function tableBodyHTML() {
   const opts = cur => ORDER.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${QN[k]}</option>`).join('');
   const row = t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
       <td><button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button></td>
-      <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${hl(t.title)}${t.repeat ? RPT : ''}</span>${t.detail ? NOTE : ''}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
+      <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${hl(t.title)}${t.repeat ? RPT : ''}</span>${t.detail ? NOTE : ''}${pgNum(t)}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
       <td class="wide">${tagsHTML(t) || '<span class="muted">—</span>'}</td>
       <td><select class="qsel">${opts(t.q)}</select></td>
       <td class="wide">${dueCell(t)}</td>
@@ -396,7 +421,8 @@ function openQuad(q) {
       <button class="bchk" data-bchk aria-label="Mark done">${CHECK}</button>
       <div class="bmain" data-bedit tabindex="0" role="button"><span class="tx">${i && i.n <= 0 ? '<span class="sn2">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}</span>
         ${dl ? `<span class="qd">${esc(dl)}</span>` : ''}
-        <span class="bmeta">${i ? `<span class="${i.cls}">${i.txt}</span>` : '<span>No deadline</span>'}${tg.map(g => `<span class="tg" style="--tc:${g.color}"><i></i><span class="n">${esc(g.name)}</span></span>`).join('')}</span></div></div>`;
+        ${pgBar(t)}
+        <span class="bmeta">${i ? `<span class="${i.cls}">${i.txt}</span>` : '<span>No deadline</span>'}${pgNum(t)}${tg.map(g => `<span class="tg" style="--tc:${g.color}"><i></i><span class="n">${esc(g.name)}</span></span>`).join('')}</span></div></div>`;
   }).join('');
   openSheet(`<div class="sh"><b>${QN[q]} <span class="cnt">${items.length}</span></b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     ${rows || '<p class="empty">Nothing here yet.</p>'}
@@ -536,22 +562,24 @@ function openAdd(preQ) {
     <textarea id="f-detail" rows="3" maxlength="2000" placeholder="Detail (optional)" hidden></textarea>
     <div class="lbl">Put in</div>${chips(q)}
     <div class="lbl">Deadline (optional)</div>${dateField('f-due', '', true)}
+    <div class="lbl">Progress</div>${progressField('f-pg', 0)}
     <div class="lbl">Repeat</div>${repeatSelect('f-rep', null)}
     <div class="lbl">Tags (optional)</div>${tagPicker(tsel)}
     <div class="acts"><span id="f-msg" class="msg"></span><button class="btn primary" id="f-add">Add</button></div>`, () => {
     const ti = $('#f-title'), de = $('#f-detail');
-    sheetGuard = () => !!(ti.value.trim() || de.value.trim() || $('#f-due').value);
+    sheetGuard = () => !!(ti.value.trim() || de.value.trim() || $('#f-due').value || +$('#f-pg-n').value);
     bindChips(v => { q = v; });
     bindQuickDates();
+    const getPg = bindProgress('f-pg');
     bindTagPicker(tsel);
     $('#f-more').onclick = () => { de.hidden = !de.hidden; $('#f-more').textContent = de.hidden ? '+ Add detail' : '− Hide detail'; if (!de.hidden) de.focus(); };
     const go = () => {
       const v = ti.value.trim();
       if (!v) { ti.focus(); return; }
-      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, repeat: $('#f-rep').value || null, tags: [...tsel] });
+      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, progress: getPg(), repeat: $('#f-rep').value || null, tags: [...tsel] });
       ti.value = ''; de.value = ''; de.hidden = true; $('#f-more').textContent = '+ Add detail'; $('#f-due').value = '';
       $('#f-due').dispatchEvent(new Event('input', { bubbles: true }));
-      $('#f-rep').value = '';
+      $('#f-rep').value = ''; $('#f-pg').value = 0; $('#f-pg').dispatchEvent(new Event('input'));
       tsel.clear(); document.querySelectorAll('#panel [data-tg]').forEach(b => b.classList.remove('on'));
       $('#f-msg').textContent = 'Added ✓ → ' + QN[q];
       toast(`✓ Task added to ${QN[q]}: ${v.length > 28 ? v.slice(0, 28) + '…' : v}`, null, true);
@@ -575,19 +603,21 @@ function openEdit(id) {
     <div class="lbl">Move to</div>${chips(q)}
     <div class="lbl">Start date (optional — default: the day it was created)</div>${dateField('e-start', t.start, false)}
     <div class="lbl">Deadline</div>${dateField('e-due', t.due, true)}
+    <div class="lbl">Progress</div>${progressField('e-pg', t.progress || 0)}
     <div class="lbl">Repeat</div>${repeatSelect('e-rep', t.repeat)}
     <div class="lbl">Tags</div>${tagPicker(tsel)}
     ${t.done ? `<p class="hint">Done ${esc(doneText(t))}</p>` : ''}
     <div class="acts"><button class="btn danger" id="e-del">Delete</button><button class="btn primary" id="e-save">Save</button></div>`, () => {
     bindChips(v => { q = v; });
     bindQuickDates();
+    const getPg = bindProgress('e-pg');
     bindTagPicker(tsel);
     const save = () => {
       const title = $('#e-title').value.trim();
       if (!title) return;
       const rep = $('#e-rep').value || null;
       const dueV = $('#e-due').value || (rep ? today() : null);
-      patch(id, { repeat: rep, reopenOn: rep ? t.reopenOn : null, nextDue: rep ? t.nextDue : null, homeQ: q === t.q ? t.homeQ : null, title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, promotedFor: q === t.q ? t.promotedFor : ($('#e-due').value || null), start: $('#e-start').value || null, due: dueV, tags: [...tsel] });
+      patch(id, { progress: getPg(), repeat: rep, reopenOn: rep ? t.reopenOn : null, nextDue: rep ? t.nextDue : null, homeQ: q === t.q ? t.homeQ : null, title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, promotedFor: q === t.q ? t.promotedFor : ($('#e-due').value || null), start: $('#e-start').value || null, due: dueV, tags: [...tsel] });
       closeSheet();
     };
     $('#e-save').onclick = save;
@@ -945,8 +975,9 @@ function toggle(id, src) {
       const nextDue = nextOccurrence(base, t.repeat);
       const dayAfter = d => { const x = parseYmd(d); x.setDate(x.getDate() + 1); return ymd(x); };
       const reopenOn = [dayAfter(base), dayAfter(tk)].sort().pop(); // the day after this cycle's deadline (or tomorrow if done late)
-      patch(id, { done: true, doneAt: Date.now(), doneFrom: t.q, homeQ: t.homeQ || t.q, reopenOn, nextDue, due: base });
-      toast(`Done ✓ — 🔁 comes back ${fmtShort(reopenOn)} (due ${fmtShort(nextDue)})`, () => patch(id, { done: false, doneAt: null, doneFrom: null, reopenOn: null, nextDue: null }));
+      const oldPg = t.progress;
+      patch(id, { done: true, doneAt: Date.now(), doneFrom: t.q, homeQ: t.homeQ || t.q, reopenOn, nextDue, due: base, progress: 0 }); // a new cycle starts from 0 %
+      toast(`Done ✓ — 🔁 comes back ${fmtShort(reopenOn)} (due ${fmtShort(nextDue)})`, () => patch(id, { done: false, doneAt: null, doneFrom: null, reopenOn: null, nextDue: null, progress: oldPg }));
     } else {
     patch(id, { done: true, doneAt: Date.now(), doneFrom: t.q });
     toast('Task completed ✓', () => patch(id, { done: false, doneAt: null, doneFrom: null }));
