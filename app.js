@@ -64,6 +64,7 @@ function clean(t) {
     deleted: !!t.deleted,
     promotedFor: t.promotedFor ? String(t.promotedFor) : null,
     progress: Math.min(100, Math.max(0, Math.round(+t.progress) || 0)),
+    personal: !!t.personal,
     repeat: ['daily', 'weekly', 'monthly'].includes(t.repeat) ? t.repeat : null,
     reopenOn: isDate(t.reopenOn) ? t.reopenOn : null,
     nextDue: isDate(t.nextDue) ? t.nextDue : null,
@@ -161,7 +162,7 @@ function patch(id, o) {
 function addTask(f) {
   const now = clock();
   mutate(() => D.tasks.push({
-    id: uid(), title: f.title, detail: f.detail || '', promotedFor: f.due || null, progress: f.progress || 0, repeat: f.repeat || null, reopenOn: null, nextDue: null, homeQ: null, q: f.q, done: false, doneAt: null, doneFrom: null,
+    id: uid(), title: f.title, detail: f.detail || '', promotedFor: f.due || null, progress: f.progress || 0, personal: !!f.personal, repeat: f.repeat || null, reopenOn: null, nextDue: null, homeQ: null, q: f.q, done: false, doneAt: null, doneFrom: null,
     start: null, due: f.due || (f.repeat ? today() : null), created: now, updatedAt: now, deleted: false, tags: f.tags || [],
   }));
 }
@@ -250,6 +251,8 @@ function hl(text) { // escape + highlight the search text
   return out + esc(text.slice(i));
 }
 const RPT = '<span class="rpt" title="Repeats"> 🔁</span>';
+const PRV = t => t.personal ? '<span class="prv" title="Personal (private)" aria-label="Personal"> 🔒</span>' : '';
+const typeField = (id, on) => `<label class="chk-row typ"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><span>🔒 Personal <small>(private — leave unchecked for Business)</small></span></label>`;
 const tagsHTML = t => {
   const g = taskTags(t);
   return g.length ? `<div class="tgs">${g.map(x => `<span class="tg" data-name="${esc(x.name)}" title="Filter by this tag" style="--tc:${x.color}"><i></i><span class="n">${esc(x.name)}</span></span>`).join('')}</div>` : '';
@@ -286,7 +289,7 @@ function taskHTML(t) {
   const di = !t.done && t.due ? dueInfo(t) : null;
   return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}"${di && (di.cls) ? ` data-due="${di.cls}"` : ''}${tg.length ? ` data-tg style="--tg1:${tg[0].color}"` : ''}>
     <button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button>
-    <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}</span>${hasD ? NOTE : ''}${tagsHTML(t)}${pgNum(t)}
+    <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}${PRV(t)}</span>${hasD ? NOTE : ''}${tagsHTML(t)}${pgNum(t)}
       ${hasD ? `<div class="prev">${esc(firstLine(t.detail))}</div>` : ''}
       ${t.done ? doneInfo(t) : timelineHTML(t)}</div>
     ${pgBar(t)}
@@ -340,7 +343,7 @@ function tableBodyHTML() {
   const opts = cur => ORDER.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${QN[k]}</option>`).join('');
   const row = t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
       <td><button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button></td>
-      <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${hl(t.title)}${t.repeat ? RPT : ''}</span>${t.detail ? NOTE : ''}${pgNum(t)}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
+      <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${hl(t.title)}${t.repeat ? RPT : ''}${PRV(t)}</span>${t.detail ? NOTE : ''}${pgNum(t)}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
       <td class="wide">${tagsHTML(t) || '<span class="muted">—</span>'}</td>
       <td><select class="qsel">${opts(t.q)}</select></td>
       <td class="wide">${dueCell(t)}</td>
@@ -421,8 +424,8 @@ function tasksToText(list, title) {
     const n = dayDiff(t.due, today());
     return n < 0 ? `Overdue ${-n} day${-n > 1 ? 's' : ''}` : n === 0 ? 'Due today' : `Due in ${n} day${n > 1 ? 's' : ''}`;
   };
-  const rows = list.map((t, i) => '| ' + [i + 1, t.title, t.due || '', status(t), (t.progress || 0) + '%', taskTags(t).map(g => g.name).join(', '), t.repeat ? ({ daily: 'Every day', weekly: 'Every week', monthly: 'Every month' })[t.repeat] : '', t.start || '', t.created ? ymd(new Date(t.created)) : '', t.detail].map(cell).join(' | ') + ' |');
-  return `# ${title} (${list.length} task${list.length === 1 ? '' : 's'})\nExported: ${today()}\n\n| # | Title | Deadline | Status | Progress | Tags | Repeat | Start | Created | Detail |\n|---|---|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n`;
+  const rows = list.map((t, i) => '| ' + [i + 1, t.title, t.personal ? 'Personal' : 'Business', t.due || '', status(t), (t.progress || 0) + '%', taskTags(t).map(g => g.name).join(', '), t.repeat ? ({ daily: 'Every day', weekly: 'Every week', monthly: 'Every month' })[t.repeat] : '', t.start || '', t.created ? ymd(new Date(t.created)) : '', t.detail].map(cell).join(' | ') + ' |');
+  return `# ${title} (${list.length} task${list.length === 1 ? '' : 's'})\nExported: ${today()}\n\n| # | Title | Type | Deadline | Status | Progress | Tags | Repeat | Start | Created | Detail |\n|---|---|---|---|---|---|---|---|---|---|---|\n${rows.join('\n')}\n`;
 }
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall back below */ }
@@ -438,7 +441,7 @@ function openQuad(q) {
     const i = t.due ? dueInfo(t) : null, tg = taskTags(t), dl = firstLine(t.detail);
     return `<div class="brow qrow" data-id="${t.id}" style="--c:var(--${q === 'backlog' ? 'muted' : q})">
       <button class="bchk" data-bchk aria-label="Mark done">${CHECK}</button>
-      <div class="bmain" data-bedit tabindex="0" role="button"><span class="tx">${i && i.n <= 0 ? '<span class="sn2">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}</span>
+      <div class="bmain" data-bedit tabindex="0" role="button"><span class="tx">${i && i.n <= 0 ? '<span class="sn2">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}${PRV(t)}</span>
         ${dl ? `<span class="qd">${esc(dl)}</span>` : ''}
         ${pgBar(t)}
         <span class="bmeta">${i ? `<span class="${i.cls}">${i.txt}</span>` : '<span>No deadline</span>'}${pgNum(t)}${tg.map(g => `<span class="tg" style="--tc:${g.color}"><i></i><span class="n">${esc(g.name)}</span></span>`).join('')}</span></div></div>`;
@@ -586,6 +589,7 @@ function openAdd(preQ) {
     <textarea id="f-detail" rows="3" maxlength="2000" placeholder="Detail (optional)" hidden></textarea>
     <div class="lbl">Put in</div>${chips(q)}
     <div class="lbl">Deadline (optional)</div>${dateField('f-due', '', true)}
+    <div class="lbl">Type</div>${typeField('f-prv', false)}
     <div class="lbl">Progress</div>${progressField('f-pg', 0)}
     <div class="lbl">Repeat</div>${repeatSelect('f-rep', null)}
     <div class="lbl">Tags (optional)</div>${tagPicker(tsel)}
@@ -600,10 +604,10 @@ function openAdd(preQ) {
     const go = () => {
       const v = ti.value.trim();
       if (!v) { ti.focus(); return; }
-      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, progress: getPg(), repeat: $('#f-rep').value || null, tags: [...tsel] });
+      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, progress: getPg(), personal: $('#f-prv').checked, repeat: $('#f-rep').value || null, tags: [...tsel] });
       ti.value = ''; de.value = ''; de.hidden = true; $('#f-more').textContent = '+ Add detail'; $('#f-due').value = '';
       $('#f-due').dispatchEvent(new Event('input', { bubbles: true }));
-      $('#f-rep').value = ''; $('#f-pg').value = 0; $('#f-pg').dispatchEvent(new Event('input'));
+      $('#f-rep').value = ''; $('#f-prv').checked = false; $('#f-pg').value = 0; $('#f-pg').dispatchEvent(new Event('input'));
       tsel.clear(); document.querySelectorAll('#panel [data-tg]').forEach(b => b.classList.remove('on'));
       $('#f-msg').textContent = 'Added ✓ → ' + QN[q];
       toast(`✓ Task added to ${QN[q]}: ${v.length > 28 ? v.slice(0, 28) + '…' : v}`, null, true);
@@ -627,6 +631,7 @@ function openEdit(id) {
     <div class="lbl">Move to</div>${chips(q)}
     <div class="lbl">Start date (optional — default: the day it was created)</div>${dateField('e-start', t.start, false)}
     <div class="lbl">Deadline</div>${dateField('e-due', t.due, true)}
+    <div class="lbl">Type</div>${typeField('e-prv', t.personal)}
     <div class="lbl">Progress</div>${progressField('e-pg', t.progress || 0)}
     <div class="lbl">Repeat</div>${repeatSelect('e-rep', t.repeat)}
     <div class="lbl">Tags</div>${tagPicker(tsel)}
@@ -641,7 +646,7 @@ function openEdit(id) {
       if (!title) return;
       const rep = $('#e-rep').value || null;
       const dueV = $('#e-due').value || (rep ? today() : null);
-      patch(id, { progress: getPg(), repeat: rep, reopenOn: rep ? t.reopenOn : null, nextDue: rep ? t.nextDue : null, homeQ: q === t.q ? t.homeQ : null, title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, promotedFor: q === t.q ? t.promotedFor : ($('#e-due').value || null), start: $('#e-start').value || null, due: dueV, tags: [...tsel] });
+      patch(id, { progress: getPg(), personal: $('#e-prv').checked, repeat: rep, reopenOn: rep ? t.reopenOn : null, nextDue: rep ? t.nextDue : null, homeQ: q === t.q ? t.homeQ : null, title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, promotedFor: q === t.q ? t.promotedFor : ($('#e-due').value || null), start: $('#e-start').value || null, due: dueV, tags: [...tsel] });
       closeSheet();
     };
     $('#e-save').onclick = save;
