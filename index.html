@@ -362,6 +362,14 @@ mark{background:#ffe066;color:#222;border-radius:3px;padding:0 1px}
 .simrow{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;min-height:44px;padding:7px 12px;border:0;border-top:1px solid var(--line,#e4e7ef);background:none;text-align:left;font:inherit;color:inherit;cursor:pointer}
 .simrow .st{font-weight:600;font-size:14.5px;overflow-wrap:anywhere}.simrow .sm{font-size:12px;color:var(--muted)}
 .simrow.dn .st{text-decoration:line-through;color:var(--muted)}
+
+/* desktop / large screens, light mode: soften the glaring white (tinted panels, off-white cards) */
+@media (min-width:700px) and (prefers-color-scheme:light){
+  :root{--card:#f6f7fa;--line:#d9dee7;--muted:#566070}
+  .backlog-sec,.quad,.donesec{--panel:color-mix(in srgb,var(--c,#8b95a7) 7%,#e6e9f0);background:var(--panel);border-color:color-mix(in srgb,var(--c,#8b95a7) 22%,#d3d9e3)}
+  .quad .task,.backlog-sec .task{background:color-mix(in srgb,var(--c) 7%,#f6f7fa)}
+  #app.v-matrix .sec-h{background:var(--panel,var(--card))}
+}
 </style>
 </head>
 <body>
@@ -382,7 +390,7 @@ mark{background:#ffe066;color:#222;border-radius:3px;padding:0 1px}
 </header>
 
 <main id="app"></main>
-<footer class="ver" id="ver"><span>Version 20261127d</span><span id="mood"></span></footer>
+<footer class="ver" id="ver"><span>Version 20261128a</span><span id="mood"></span></footer>
 
 <button class="fab" data-act="add" aria-label="Add task">
   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
