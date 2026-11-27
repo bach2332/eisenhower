@@ -527,8 +527,8 @@ function openBrief() {
       const id = r.dataset.id;
       r.querySelector('[data-bchk]').onclick = () => { toggle(id, r); setTimeout(openBrief, 60); };
       const ed = r.querySelector('[data-bedit]');
-      ed.onclick = () => openEdit(id);
-      ed.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(id); } };
+      ed.onclick = () => openEdit(id, openBrief);
+      ed.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(id, openBrief); } };
     });
   });
 }
