@@ -8,6 +8,7 @@ const Q = [
   { id: 'q3', name: 'Hand off', sub: 'Urgent, less important · delegate' },
   { id: 'q4', name: 'Maybe',    sub: 'Not urgent, less important · later or drop' },
 ];
+const HIST_MAX = 40;
 const QN = { backlog: 'Backlog', q1: 'Now', q2: 'Next', q3: 'Hand off', q4: 'Maybe' };
 const ORDER = ['backlog', 'q1', 'q2', 'q3', 'q4'];
 const QORD = { q1: 0, q2: 1, q3: 2, q4: 3, backlog: 4 };
@@ -65,6 +66,7 @@ function clean(t) {
     promotedFor: t.promotedFor ? String(t.promotedFor) : null,
     progress: Math.min(100, Math.max(0, Math.round(+t.progress) || 0)),
     personal: !!t.personal,
+    hist: Array.isArray(t.hist) ? t.hist.filter(h => h && +h.at && Array.isArray(h.c)).slice(-HIST_MAX) : [],
     repeat: ['daily', 'weekly', 'monthly'].includes(t.repeat) ? t.repeat : null,
     reopenOn: isDate(t.reopenOn) ? t.reopenOn : null,
     nextDue: isDate(t.nextDue) ? t.nextDue : null,
@@ -136,6 +138,7 @@ function promote() {
     if (dayDiff(t.due, lim) > days) return;
     moved.push({ id: t.id, from: t.q });
     t.homeQ = t.homeQ || t.q; // remember the board it really belongs to (repeating tasks return there)
+    logHist(t, { q: PROMO[t.q] }, 'auto');
     t.q = PROMO[t.q]; t.order = null; t.promotedFor = t.due; t.updatedAt = now;
   });
   return moved;
@@ -147,23 +150,47 @@ function announcePromo(mv) {
   const txt = mv.length === 1
     ? `⚡ “${D.tasks.find(x => x.id === mv[0].id).title.slice(0, 28)}” is due soon → moved to ${to(mv[0].id)}`
     : `⚡ ${mv.length} tasks due soon moved up (${[...new Set(mv.map(m => QN[m.from] + ' → ' + to(m.id)))].join(', ')})`;
-  toast(txt, () => mutate(() => { const now = clock(); mv.forEach(m => { const t = D.tasks.find(x => x.id === m.id); if (t) { t.q = m.from; t.order = null; t.homeQ = null; t.updatedAt = now; } }); }));
+  toast(txt, () => mutate(() => { const now = clock(); mv.forEach(m => { const t = D.tasks.find(x => x.id === m.id); if (t) { logHist(t, { q: m.from }, 'undo'); t.q = m.from; t.order = null; t.homeQ = null; t.updatedAt = now; } }); }));
 }
 function runPromote() { // outside of a user edit: load, new day, after sync
   const mv = promote();
   if (mv.length || mv.reopened.length) { D.rev++; D.dirty = true; saveData(); schedulePush(); }
   return mv;
 }
-function patch(id, o) {
+/* ---------- edit history (kept inside each task, so it syncs with it) ---------- */
+const HIST_F = { title: 'Title', detail: 'Detail', q: 'Board', due: 'Deadline', start: 'Start', progress: 'Progress', personal: 'Type', repeat: 'Repeat', tags: 'Tags', done: 'Done', deleted: 'Deleted' };
+function histShow(f, v) {
+  if (f === 'q') return QN[v] || '—';
+  if (f === 'personal') return v ? 'Personal' : 'Business';
+  if (f === 'progress') return (v || 0) + '%';
+  if (f === 'done' || f === 'deleted') return v ? 'yes' : 'no';
+  if (f === 'tags') return (v || []).map(id => (tagById(id) || {}).name).filter(Boolean).join(', ') || '—';
+  if (f === 'repeat') return v ? ({ daily: 'every day', weekly: 'every week', monthly: 'every month' })[v] || v : '—';
+  v = String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  return v ? (v.length > 60 ? v.slice(0, 59) + '…' : v) : '—';
+}
+function logHist(t, o, src) { // call inside mutate(), before the task is changed
+  const c = [];
+  Object.keys(HIST_F).forEach(f => {
+    if (!(f in o)) return;
+    const a = f === 'tags' ? [...(t.tags || [])].sort().join() : (t[f] == null ? '' : t[f]);
+    const b = f === 'tags' ? [...(o.tags || [])].sort().join() : (o[f] == null ? '' : o[f]);
+    if (a === b || (f === 'done' || f === 'deleted' || f === 'personal') && !a === !b) return;
+    c.push([HIST_F[f], histShow(f, t[f]), histShow(f, o[f])]);
+  });
+  if (!c.length) return;
+  t.hist = (Array.isArray(t.hist) ? t.hist : []).concat([{ at: clock(), s: src || '', c }]).slice(-HIST_MAX);
+}
+function patch(id, o, src) {
   const t = D.tasks.find(x => x.id === id);
   if (!t) return;
-  mutate(() => Object.assign(t, o, { updatedAt: clock() }));
+  mutate(() => { logHist(t, o, src); Object.assign(t, o, { updatedAt: clock() }); });
 }
 function addTask(f) {
   const now = clock();
   mutate(() => D.tasks.push({
     id: uid(), title: f.title, detail: f.detail || '', promotedFor: f.due || null, progress: f.progress || 0, personal: !!f.personal, repeat: f.repeat || null, reopenOn: null, nextDue: null, homeQ: null, q: f.q, done: false, doneAt: null, doneFrom: null,
-    start: null, due: f.due || (f.repeat ? today() : null), created: now, updatedAt: now, deleted: false, tags: f.tags || [],
+    start: null, due: f.due || (f.repeat ? today() : null), created: now, updatedAt: now, deleted: false, tags: f.tags || [], hist: [{ at: now, s: 'created', c: [] }],
   }));
 }
 function addTag(name, color) {
@@ -458,8 +485,8 @@ function openQuad(q) {
       const id = r.dataset.id;
       r.querySelector('[data-bchk]').onclick = () => { toggle(id, r); setTimeout(() => openQuad(q), 60); };
       const ed = r.querySelector('[data-bedit]');
-      ed.onclick = () => openEdit(id);
-      ed.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(id); } };
+      ed.onclick = () => openEdit(id, () => openQuad(q));
+      ed.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openEdit(id, () => openQuad(q)); } };
     });
     $('#qd-add').onclick = () => openAdd(q);
   });
@@ -619,12 +646,18 @@ function openAdd(preQ) {
   });
 }
 
-function openEdit(id) {
+function historyHTML(t) {
+  const h = (t.hist || []).slice().reverse();
+  const SRC = { created: 'created', auto: 'auto-moved', undo: 'undo', drag: 'moved by drag' };
+  const items = h.map(e => `<li><span class="ht">${esc(fmtShort(ymd(new Date(e.at))) + ' ' + new Date(e.at).toTimeString().slice(0, 5))}${SRC[e.s] ? ' · ' + SRC[e.s] : ''}</span>${e.c.length ? e.c.map(x => `<div class="hc"><b>${esc(x[0])}</b> ${esc(x[1])} → ${esc(x[2])}</div>`).join('') : '<div class="hc">Task created</div>'}</li>`).join('');
+  return `<details class="hist"><summary>History (${h.length})</summary>${h.length ? `<ul>${items}</ul>` : '<p class="hint">No changes recorded yet.</p>'}</details>`;
+}
+function openEdit(id, back) { // back: optional function that reopens the list this task was opened from
   const t = find(id);
   if (!t) return;
   let q = t.q;
   const tsel = new Set((t.tags || []).filter(id => tagById(id)));
-  openSheet(`<div class="sh"><b>Edit task</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
+  openSheet(`<div class="sh">${back ? '<button class="btn back" id="e-back" aria-label="Back to the list">← Back</button>' : ''}<b>Edit task</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     <input id="e-title" type="text" value="${esc(t.title)}" maxlength="200" autocomplete="off">
     <div class="lbl">Detail</div>
     <textarea id="e-detail" rows="4" maxlength="2000" placeholder="Detail (optional)">${esc(t.detail)}</textarea>
@@ -636,24 +669,29 @@ function openEdit(id) {
     <div class="lbl">Repeat</div>${repeatSelect('e-rep', t.repeat)}
     <div class="lbl">Tags</div>${tagPicker(tsel)}
     ${t.done ? `<p class="hint">Done ${esc(doneText(t))}</p>` : ''}
-    <div class="acts"><button class="btn danger" id="e-del">Delete</button><button class="btn primary" id="e-save">Save</button></div>`, () => {
+    ${historyHTML(t)}
+    <div class="acts"><button class="btn danger" id="e-del">Delete</button><button class="btn ok" id="e-done">${t.done ? '↩ Reopen' : '✓ Done'}</button><button class="btn primary" id="e-save">Save</button></div>`, () => {
+    const finish = () => { if (back) back(); else closeSheet(); };
+    if (back) $('#e-back').onclick = back;
     bindChips(v => { q = v; });
     bindQuickDates();
     const getPg = bindProgress('e-pg');
     bindTagPicker(tsel);
-    const save = () => {
+    const apply = () => {
       const title = $('#e-title').value.trim();
-      if (!title) return;
+      if (!title) { $('#e-title').focus(); return false; }
       const rep = $('#e-rep').value || null;
       const dueV = $('#e-due').value || (rep ? today() : null);
       patch(id, { progress: getPg(), personal: $('#e-prv').checked, repeat: rep, reopenOn: rep ? t.reopenOn : null, nextDue: rep ? t.nextDue : null, homeQ: q === t.q ? t.homeQ : null, title, detail: $('#e-detail').value.trim(), q, order: q === t.q ? t.order : null, promotedFor: q === t.q ? t.promotedFor : ($('#e-due').value || null), start: $('#e-start').value || null, due: dueV, tags: [...tsel] });
-      closeSheet();
+      return true;
     };
+    const save = () => { if (apply()) finish(); };
+    $('#e-done').onclick = () => { if (!apply()) return; toggle(id); finish(); };
     $('#e-save').onclick = save;
     $('#e-title').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
     $('#e-del').onclick = () => {
       patch(id, { deleted: true });
-      closeSheet();
+      finish();
       toast('Task deleted', () => patch(id, { deleted: false }));
     };
   });
@@ -1082,6 +1120,7 @@ function placeTask(id, target, ids, i) {
     if (list.some(x => x.order == null)) list.forEach((x, k) => { x.order = (k + 1) * 1000; x.updatedAt = now; });
     const p = list[i - 1], n = list[i];
     t.order = p && n ? (p.order + n.order) / 2 : n ? n.order - 1000 : p ? p.order + 1000 : 1000;
+    logHist(t, { q: target }, 'drag');
     t.q = target; t.updatedAt = now; t.promotedFor = t.due; t.homeQ = null;
   });
 }
