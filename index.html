@@ -370,6 +370,10 @@ mark{background:#ffe066;color:#222;border-radius:3px;padding:0 1px}
   .quad .task,.backlog-sec .task{background:color-mix(in srgb,var(--c) 7%,#f6f7fa)}
   #app.v-matrix .sec-h{background:var(--panel,var(--card))}
 }
+.dq{margin:0 0 12px;padding:10px 12px;border-radius:12px;background:#fff4e0;border:1px solid #f5d48a;color:#6b4300}
+.dq b{display:block;margin-bottom:8px}
+.dq .dqb{display:flex;flex-wrap:wrap;gap:8px}
+@media (prefers-color-scheme:dark){.dq{background:#3a2b10;border-color:#7a5a1a;color:#ffe2a8}}
 </style>
 </head>
 <body>
@@ -390,7 +394,7 @@ mark{background:#ffe066;color:#222;border-radius:3px;padding:0 1px}
 </header>
 
 <main id="app"></main>
-<footer class="ver" id="ver"><span>Version 20261128a</span><span id="mood"></span></footer>
+<footer class="ver" id="ver"><span>Version 20261128b</span><span id="mood"></span></footer>
 
 <button class="fab" data-act="add" aria-label="Add task">
   <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>

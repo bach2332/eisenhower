@@ -542,20 +542,20 @@ function maybeBrief() { // once per browser session and day, only when there is 
 }
 
 /* ---------- sheets ---------- */
-let sheetOpen = false, sheetGuard = null; // sheetGuard(): true while the open dialog holds unsaved input
+let sheetOpen = false, sheetGuard = null, sheetAsk = null; // sheetGuard(): true while the open dialog holds unsaved input; sheetAsk(): optional "save changes?" prompt
 function openSheet(html, bind) {
   $('#panel').innerHTML = html;
   $('#overlay').hidden = false;
   document.body.classList.add('noscroll');
   if (!sheetOpen) { try { history.pushState({ sheet: 1 }, ''); } catch (e) { /* ignore */ } }
   sheetOpen = true;
-  sheetGuard = null;
+  sheetGuard = null; sheetAsk = null;
   if (bind) bind();
 }
 function closeSheet(fromPop) {
   if (!sheetOpen) return;
   sheetOpen = false;
-  sheetGuard = null;
+  sheetGuard = null; sheetAsk = null;
   $('#overlay').hidden = true;
   document.body.classList.remove('noscroll');
   if (!fromPop) { try { history.back(); } catch (e) { /* ignore */ } }
@@ -563,7 +563,7 @@ function closeSheet(fromPop) {
 // Outside tap / Esc / Back close the dialog, unless it holds typed input: then only the ✕ button closes it.
 const blocked = () => {
   if (!(sheetOpen && sheetGuard && sheetGuard())) return false;
-  toast('Tap ✕ to close — what you typed would be lost');
+  if (sheetAsk) sheetAsk(); else toast('Tap ✕ to close — what you typed would be lost');
   return true;
 };
 window.addEventListener('popstate', () => {
@@ -708,7 +708,6 @@ function openEdit(id, back) { // back: optional function that reopens the list t
     ${historyHTML(t)}
     <div class="acts"><button class="btn danger" id="e-del">Delete</button><button class="btn ok" id="e-done">${t.done ? '↩ Reopen' : '✓ Done'}</button><button class="btn primary" id="e-save">Save</button></div>`, () => {
     const finish = () => { if (back) back(); else closeSheet(); };
-    if (back) $('#e-back').onclick = back;
     bindChips(v => { q = v; });
     bindQuickDates();
     const getPg = bindProgress('e-pg');
@@ -724,6 +723,21 @@ function openEdit(id, back) { // back: optional function that reopens the list t
     const save = () => { if (apply()) finish(); };
     $('#e-done').onclick = () => { if (!apply()) return; toggle(id); finish(); };
     $('#e-save').onclick = save;
+    // unsaved-changes guard: untouched -> outside tap / Esc / ✕ close at once; edited -> they ask "Save your changes?"
+    const snap = () => JSON.stringify([$('#e-title').value.trim(), $('#e-detail').value.trim(), q, $('#e-start').value, $('#e-due').value, $('#e-prv').checked, getPg(), $('#e-rep').value, [...tsel].sort()]);
+    const init = snap(), dirty = () => snap() !== init;
+    const ask = () => {
+      if ($('#e-ask')) { $('#e-ask').scrollIntoView({ block: 'nearest' }); return; }
+      $('#panel .sh').insertAdjacentHTML('afterend', `<div class="dq" id="e-ask" role="alertdialog" aria-label="Unsaved changes"><b>Save your changes?</b><div class="dqb"><button type="button" class="btn primary" id="e-ask-save">Save</button><button type="button" class="btn danger" id="e-ask-no">Discard</button><button type="button" class="btn" id="e-ask-keep">Keep editing</button></div></div>`);
+      const drop = () => { const a = $('#e-ask'); if (a) a.remove(); };
+      $('#e-ask-save').onclick = () => { if (apply()) finish(); else drop(); };
+      $('#e-ask-no').onclick = finish;
+      $('#e-ask-keep').onclick = drop;
+      $('#e-ask').scrollIntoView({ block: 'nearest' });
+    };
+    sheetGuard = dirty; sheetAsk = ask;
+    const xb = $('#panel .sh .x'); xb.removeAttribute('data-act'); xb.onclick = () => (dirty() ? ask() : closeSheet());
+    if (back) $('#e-back').onclick = () => (dirty() ? ask() : back());
     $('#e-title').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
     $('#e-del').onclick = () => {
       patch(id, { deleted: true });
