@@ -278,7 +278,7 @@ function hl(text) { // escape + highlight the search text
   return out + esc(text.slice(i));
 }
 const RPT = '<span class="rpt" title="Repeats"> 🔁</span>';
-const PRV = t => t.personal ? '<span class="prv" title="Personal (private)" aria-label="Personal"> 🔒</span>' : '';
+const PRV = t => t.personal ? '<span class="prv" title="Personal (private)" aria-label="Personal">🔒</span>' : '';
 const typeField = (id, on) => `<label class="chk-row typ"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><span>🔒 Personal <small>(private — leave unchecked for Business)</small></span></label>`;
 const tagsHTML = t => {
   const g = taskTags(t);
@@ -316,7 +316,7 @@ function taskHTML(t) {
   const di = !t.done && t.due ? dueInfo(t) : null;
   return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}"${di && (di.cls) ? ` data-due="${di.cls}"` : ''}${tg.length ? ` data-tg style="--tg1:${tg[0].color}"` : ''}>
     <button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button>
-    <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}${PRV(t)}</span>${hasD ? NOTE : ''}${tagsHTML(t)}${pgNum(t)}
+    <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${PRV(t)}${hl(t.title)}${t.repeat ? RPT : ''}</span>${hasD ? NOTE : ''}${tagsHTML(t)}${pgNum(t)}
       ${hasD ? `<div class="prev">${esc(firstLine(t.detail))}</div>` : ''}
       ${t.done ? doneInfo(t) : timelineHTML(t)}</div>
     ${pgBar(t)}
@@ -370,7 +370,7 @@ function tableBodyHTML() {
   const opts = cur => ORDER.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${QN[k]}</option>`).join('');
   const row = t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
       <td><button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button></td>
-      <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${hl(t.title)}${t.repeat ? RPT : ''}${PRV(t)}</span>${t.detail ? NOTE : ''}${pgNum(t)}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
+      <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${PRV(t)}${hl(t.title)}${t.repeat ? RPT : ''}</span>${t.detail ? NOTE : ''}${pgNum(t)}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
       <td class="wide">${tagsHTML(t) || '<span class="muted">—</span>'}</td>
       <td><select class="qsel">${opts(t.q)}</select></td>
       <td class="wide">${dueCell(t)}</td>
@@ -468,7 +468,7 @@ function openQuad(q) {
     const i = t.due ? dueInfo(t) : null, tg = taskTags(t), dl = firstLine(t.detail);
     return `<div class="brow qrow" data-id="${t.id}" style="--c:var(--${q === 'backlog' ? 'muted' : q})">
       <button class="bchk" data-bchk aria-label="Mark done">${CHECK}</button>
-      <div class="bmain" data-bedit tabindex="0" role="button"><span class="tx">${i && i.n <= 0 ? '<span class="sn2">' + SANTA + '</span>' : ''}${hl(t.title)}${t.repeat ? RPT : ''}${PRV(t)}</span>
+      <div class="bmain" data-bedit tabindex="0" role="button"><span class="tx">${i && i.n <= 0 ? '<span class="sn2">' + SANTA + '</span>' : ''}${PRV(t)}${hl(t.title)}${t.repeat ? RPT : ''}</span>
         ${dl ? `<span class="qd">${esc(dl)}</span>` : ''}
         ${pgBar(t)}
         <span class="bmeta">${i ? `<span class="${i.cls}">${i.txt}</span>` : '<span>No deadline</span>'}${pgNum(t)}${tg.map(g => `<span class="tg" style="--tc:${g.color}"><i></i><span class="n">${esc(g.name)}</span></span>`).join('')}</span></div></div>`;
@@ -518,7 +518,7 @@ function openBrief() {
   const late = L.filter(t => dayDiff(t.due, today()) < 0).length, now = L.length - late;
   const rows = L.map(t => { const i = dueInfo(t); return `<div class="brow" data-id="${t.id}" style="--c:var(--${t.q})">
     <button class="bchk" data-bchk aria-label="Mark done">${CHECK}</button>
-    <div class="bmain" data-bedit tabindex="0" role="button"><span class="tx">${esc(t.title)}</span><span class="bmeta"><i></i>${QN[t.q]} · <span class="${i.cls}">${i.txt}</span></span></div></div>`; }).join('');
+    <div class="bmain" data-bedit tabindex="0" role="button"><span class="tx">${PRV(t)}${esc(t.title)}</span><span class="bmeta"><i></i>${QN[t.q]} · <span class="${i.cls}">${i.txt}</span></span></div></div>`; }).join('');
   openSheet(`<div class="sh"><b>🎯 Today’s focus</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     ${L.length ? `<p class="brief-sub">${[late ? late + ' overdue' : '', now ? now + ' due today' : ''].filter(Boolean).join(' · ')} — tap ○ when done, tap a task to edit.</p>${rows}
     <div class="acts"><span></span><button class="btn primary" data-act="close">Got it</button></div>`
