@@ -607,11 +607,36 @@ function bindTagPicker(sel) {
   document.querySelectorAll('#panel [data-tg]').forEach(b => { b.onclick = () => { const id = b.dataset.tg; sel.has(id) ? sel.delete(id) : sel.add(id); b.classList.toggle('on', sel.has(id)); }; });
 }
 const repeatSelect = (id, val) => `<select id="${id}"><option value="">Doesn’t repeat</option>${Object.entries(REPEATS).map(([k, l]) => `<option value="${k}" ${val === k ? 'selected' : ''}>${l}</option>`).join('')}</select>`;
-function openAdd(preQ) {
+/* ---------- "similar tasks" while typing a new title (avoid duplicates) ---------- */
+const fold = x => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+function similarTasks(text, limit = 5) {
+  const phrase = fold(text).replace(/[^a-z0-9]+/g, ' ').trim();
+  const toks = [...new Set(phrase.split(' ').filter(w => w.length >= 2 || /\d/.test(w)))];
+  if (!toks.length) return [];
+  const out = [];
+  live().forEach(t => {
+    const ti = fold(t.title), rest = fold((t.detail || '') + ' ' + taskTags(t).map(g => g.name).join(' '));
+    let sc = 0;
+    toks.forEach(w => { if (ti.includes(w)) sc += 1; else if (rest.includes(w)) sc += 0.5; });
+    sc /= toks.length;
+    const exact = ti.replace(/[^a-z0-9]+/g, ' ').trim() === phrase;
+    if (exact) sc = 2; else if (ti.includes(phrase) && phrase.length >= 3) sc = Math.max(sc, 1.2);
+    if (sc >= 0.5) out.push({ t, sc, exact });
+  });
+  return out.sort((a, b) => b.sc - a.sc || (a.t.done - b.t.done) || b.t.updatedAt - a.t.updatedAt).slice(0, limit);
+}
+function similarHTML(list) {
+  if (!list.length) return '';
+  const dup = list.some(x => x.exact && !x.t.done);
+  return `<div class="simhd${dup ? ' dup' : ''}">${dup ? '⚠ A task with this title already exists' : 'Similar tasks'} <span>(${list.length}) · tap to open</span></div>` +
+    list.map(({ t }) => `<button type="button" class="simrow${t.done ? ' dn' : ''}" data-sim="${t.id}"><span class="st">${PRV(t)}${esc(t.title)}</span><span class="sm">${QN[t.q]}${t.due ? ' · ' + esc(fmtShort(t.due)) : ''}${t.done ? ' · ✓ done' : ''}${pgOf(t) ? ' · ' + t.progress + '%' : ''}</span></button>`).join('');
+}
+function openAdd(preQ, prefill) {
   const tsel = new Set();
   let q = preQ || 'backlog';
   openSheet(`<div class="sh"><b>New task</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     <input id="f-title" type="text" placeholder="What needs doing?" maxlength="200" autocomplete="off" enterkeyhint="done">
+    <div id="f-sim" class="sim" hidden></div>
     <button type="button" class="linkbtn" id="f-more">+ Add detail</button>
     <textarea id="f-detail" rows="3" maxlength="2000" placeholder="Detail (optional)" hidden></textarea>
     <div class="lbl">Put in</div>${chips(q)}
@@ -622,6 +647,14 @@ function openAdd(preQ) {
     <div class="lbl">Tags (optional)</div>${tagPicker(tsel)}
     <div class="acts"><span id="f-msg" class="msg"></span><button class="btn primary" id="f-add">Add</button></div>`, () => {
     const ti = $('#f-title'), de = $('#f-detail');
+    let simT, dupOk = false;
+    const showSim = () => {
+      const list = similarTasks(ti.value), box = $('#f-sim');
+      box.innerHTML = similarHTML(list); box.hidden = !list.length;
+      box.querySelectorAll('[data-sim]').forEach(b => { b.onclick = () => openEdit(b.dataset.sim, () => openAdd(q, ti.value)); });
+    };
+    ti.addEventListener('input', () => { dupOk = false; $('#f-msg').textContent = ''; clearTimeout(simT); simT = setTimeout(showSim, 120); });
+    if (prefill) { ti.value = prefill; showSim(); }
     sheetGuard = () => !!(ti.value.trim() || de.value.trim() || $('#f-due').value || +$('#f-pg-n').value);
     bindChips(v => { q = v; });
     bindQuickDates();
@@ -631,8 +664,11 @@ function openAdd(preQ) {
     const go = () => {
       const v = ti.value.trim();
       if (!v) { ti.focus(); return; }
+      if (!dupOk && similarTasks(v).some(x => x.exact && !x.t.done)) { // soft guard: ask once before creating an exact duplicate
+        dupOk = true; $('#f-msg').textContent = 'Same task exists — tap Add again to create anyway'; ti.focus(); return;
+      }
       addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, progress: getPg(), personal: $('#f-prv').checked, repeat: $('#f-rep').value || null, tags: [...tsel] });
-      ti.value = ''; de.value = ''; de.hidden = true; $('#f-more').textContent = '+ Add detail'; $('#f-due').value = '';
+      ti.value = ''; de.value = ''; de.hidden = true; $('#f-sim').hidden = true; $('#f-sim').innerHTML = ''; dupOk = false; $('#f-more').textContent = '+ Add detail'; $('#f-due').value = '';
       $('#f-due').dispatchEvent(new Event('input', { bubbles: true }));
       $('#f-rep').value = ''; $('#f-prv').checked = false; $('#f-pg').value = 0; $('#f-pg').dispatchEvent(new Event('input'));
       tsel.clear(); document.querySelectorAll('#panel [data-tg]').forEach(b => b.classList.remove('on'));
