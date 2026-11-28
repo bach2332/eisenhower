@@ -4,6 +4,11 @@ A static web app (plain HTML/JS, no build step) that you can install as a PWA on
 
 ## Features
 
+- **Three views**: **Matrix** (overview), **List** (one column grouped by board, full titles, deadline and tags — best on phones) and **Table**.
+- **Status in words**: in the compact Matrix, late and due-soon tasks carry a text chip (Late 2d, Today, Tomorrow) instead of colour only.
+- **Filters**: the Table has a single Filters button (with a count) that opens a sheet for Show / Board / Tag / Group / Sort.
+- **Settings in three tabs**: Sync, Preferences, Data. Header icons have text labels.
+- **Quick add** is short: title, board, deadline and type; Detail, Tags and Repeat sit under **More options**.
 - **Backlog**: where unsorted tasks live. New tasks land here first.
 - **Four quadrants**: **Now** (urgent + important), **Next** (important, not urgent), **Hand off** (urgent, less important), **Maybe** (not urgent, less important).
 - **Quick add**: tap `+`, type a title, press Enter. Optionally add a detail, pick the target quadrant and set a deadline (Today / Tomorrow / +1 week) right away.

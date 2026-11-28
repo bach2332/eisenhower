@@ -15,6 +15,7 @@ const QORD = { q1: 0, q2: 1, q3: 2, q4: 3, backlog: 4 };
 const K_DATA = 'eisen.data.v1', K_CFG = 'eisen.cfg.v1', FILE = 'tasks.json';
 
 const HANDLE = '<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor"><circle cx="6" cy="4" r="1.6"/><circle cx="12" cy="4" r="1.6"/><circle cx="6" cy="9" r="1.6"/><circle cx="12" cy="9" r="1.6"/><circle cx="6" cy="14" r="1.6"/><circle cx="12" cy="14" r="1.6"/></svg>';
+const FILTER = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4"/></svg>';
 const CHECK = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 const EXPAND = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>';
 const PLUS = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
@@ -237,7 +238,7 @@ function timelineHTML(t) {
   const total = Math.max(1, dayDiff(t.due, startStr));
   const elapsed = dayDiff(today(), startStr);
   const pct = Math.max(0, Math.min(100, Math.round(elapsed / total * 100)));
-  return `<div class="tl ${info.cls}"><div class="tl-t"><span>${fmtShort(startStr)} → ${fmtShort(t.due)}</span><b>${info.n <= 0 ? SANTA : ''}${info.txt}</b></div><div class="track"><i style="width:${pct}%"></i></div></div>`;
+  return `<div class="tl ${info.cls}"><div class="tl-t"><span>${fmtShort(startStr)} → ${fmtShort(t.due)}</span><b>${info.n <= 0 ? SANTA : ''}<span class="l">${info.txt}</span><span class="s">${info.n < 0 ? 'Late ' + -info.n + 'd' : info.n === 0 ? 'Today' : 'Tomorrow'}</span></b></div><div class="track"><i style="width:${pct}%"></i></div></div>`;
 }
 function doneText(t) {
   return (t.doneAt ? fmtTs(t.doneAt) : '') + (t.doneFrom ? ' · from ' + QN[t.doneFrom] : '') + (t.repeat && t.reopenOn ? ' · 🔁 back ' + fmtShort(t.reopenOn) : '');
@@ -315,7 +316,7 @@ function taskHTML(t) {
   const tg = taskTags(t);
   const di = !t.done && t.due ? dueInfo(t) : null;
   return `<div class="task ${t.done ? 'done' : ''}" data-id="${t.id}"${di && (di.cls) ? ` data-due="${di.cls}"` : ''}${tg.length ? ` data-tg style="--tg1:${tg[0].color}"` : ''}>
-    <button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button>
+    <button class="chk" data-act="toggle" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${CHECK}</button>
     <div class="tt" data-act="edit" tabindex="0" role="button"><span class="tx">${di && di.n <= 0 ? '<span class="sn">' + SANTA + '</span>' : ''}${PRV(t)}${hl(t.title)}${t.repeat ? RPT : ''}</span>${hasD ? NOTE : ''}${tagsHTML(t)}${pgNum(t)}
       ${hasD ? `<div class="prev">${esc(firstLine(t.detail))}</div>` : ''}
       ${t.done ? doneInfo(t) : timelineHTML(t)}</div>
@@ -330,7 +331,7 @@ function matrixHTML() {
   const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
   const backlog = act.filter(t => t.q === 'backlog').sort(cmpList);
   let h = `<section class="backlog-sec backlog" data-drop="backlog">
-    <div class="sec-h"><div class="nm"><b>Backlog</b><span class="cnt">${backlog.length}</span><small>Unsorted — hold ⠿ for 0.5 s, then drag to a quadrant</small></div>
+    <div class="sec-h"><div class="nm"><b>Backlog</b><span class="cnt">${backlog.length}</span><small>Unsorted — hold ⠿ for 0.5 s, then drag to a board</small></div>
       <button class="addq expq" data-act="expand" data-q="backlog" aria-label="Open Backlog full screen" title="Open in a dialog (or double-tap the title)">${EXPAND}</button></div>
     ${backlog.length ? backlog.map(taskHTML).join('') : '<p class="empty">Backlog is empty. Tap + to add a task.</p>'}
   </section><div class="matrix">`;
@@ -344,11 +345,33 @@ function matrixHTML() {
     </section>`;
   }
   h += '</div>';
+  return h + doneSecHTML(dn);
+}
+function doneSecHTML(dn) {
+  let h = '';
   if (dn.length) {
     h += `<section class="donesec"><button class="dh" data-act="toggledone"><b>Done</b><span class="cnt">${dn.length}</span><span>${C.showDone || search ? '▾' : '▸'}</span></button>
       ${C.showDone || search ? `<div class="list">${dn.map(taskHTML).join('')}<button class="btn small" data-act="cleardone">Clear done</button></div>` : ''}</section>`;
   }
   return h;
+}
+
+// List view: one column, grouped by quadrant, full titles + deadline + tags (drag still works between groups)
+function listHTML() {
+  const L = live().filter(match);
+  const act = L.filter(t => !t.done);
+  const dn = L.filter(t => t.done).sort((a, b) => (b.doneAt || 0) - (a.doneAt || 0));
+  let h = '';
+  for (const q of [...Q, { id: 'backlog', name: 'Backlog', sub: 'Unsorted' }]) {
+    const items = act.filter(t => t.q === q.id).sort(cmpList);
+    h += `<section class="quad ${q.id}" data-drop="${q.id}">
+      <div class="sec-h"><div class="nm"><b>${q.name}</b><span class="cnt">${items.length}</span></div>
+        <button class="addq expq" data-act="expand" data-q="${q.id}" aria-label="Open ${q.name} full screen" title="Open in a dialog (or double-tap the title)">${EXPAND}</button>
+        <button class="addq" data-act="addq" data-q="${q.id}" aria-label="Add to ${q.name}">${PLUS}</button></div>
+      <div class="list">${items.length ? items.map(taskHTML).join('') : '<p class="empty">Nothing here</p>'}</div>
+    </section>`;
+  }
+  return h + doneSecHTML(dn);
 }
 
 function tableBodyHTML() {
@@ -369,7 +392,7 @@ function tableBodyHTML() {
   if (!L.length) return '<p class="empty big">No tasks here.</p>';
   const opts = cur => ORDER.map(k => `<option value="${k}" ${k === cur ? 'selected' : ''}>${QN[k]}</option>`).join('');
   const row = t => `<tr class="row ${t.q} ${t.done ? 'done' : ''}" data-id="${t.id}">
-      <td><button class="chk" data-act="toggle" aria-label="Toggle done">${CHECK}</button></td>
+      <td><button class="chk" data-act="toggle" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${CHECK}</button></td>
       <td class="ttl" data-act="edit" tabindex="0" role="button"><span class="tx">${PRV(t)}${hl(t.title)}${t.repeat ? RPT : ''}</span>${t.detail ? NOTE : ''}${pgNum(t)}<span class="nw">${t.done ? doneInfo(t) : (t.due ? '<br>' + dueCell(t) : '')}</span><div class="nw">${tagsHTML(t)}</div></td>
       <td class="wide">${tagsHTML(t) || '<span class="muted">—</span>'}</td>
       <td><select class="qsel">${opts(t.q)}</select></td>
@@ -380,19 +403,35 @@ function tableBodyHTML() {
     const groups = [...liveTags().map(g => ({ g, rows: L.filter(t => (t.tags || []).includes(g.id)) })), { g: null, rows: L.filter(t => !taskTags(t).length) }];
     body = groups.filter(x => x.rows.length).map(x => `<tr class="grp"><td colspan="6"><span class="tg" style="--tc:${x.g ? x.g.color : '#6b7280'}"><i></i><span class="n">${x.g ? esc(x.g.name) : 'No tag'}</span></span> <span class="cnt">${x.rows.length}</span></td></tr>${x.rows.map(row).join('')}`).join('');
   } else body = L.map(row).join('');
-  return `<table><thead><tr><th></th><th>Task</th><th class="wide">Tags</th><th>Quadrant</th><th class="wide">Deadline</th><th class="wide">Done</th></tr></thead><tbody>${body}</tbody></table>`;
+  return `<table><thead><tr><th></th><th>Task</th><th class="wide">Tags</th><th>Board</th><th class="wide">Deadline</th><th class="wide">Done</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
+const SORTS = [['q', 'Board'], ['due', 'Deadline'], ['new', 'Newest'], ['title', 'A–Z']];
+function filterCount() { return (C.status !== 'active') + (C.fq !== 'all') + (C.ftag !== 'all') + (C.group !== 'none') + (C.sort !== 'q'); }
+function filterSummary() {
+  const tg = C.ftag === 'all' ? '' : C.ftag === 'none' ? 'No tag' : (tagById(C.ftag) || {}).name || '';
+  return [{ active: 'Active', done: 'Done', all: 'All' }[C.status] || 'Active', C.fq !== 'all' ? QN[C.fq] : '', tg, C.group === 'tag' ? 'Grouped by tag' : '', 'Sort: ' + (SORTS.find(x => x[0] === C.sort) || SORTS[0])[1]].filter(Boolean).join(' · ');
+}
 function tableHTML() {
-  const sc = (v, l) => `<button class="chip ${C.status === v ? 'on' : ''}" data-act="status" data-v="${v}">${l}</button>`;
-  const sorts = [['q', 'Sort: Quadrant'], ['due', 'Sort: Deadline'], ['new', 'Sort: Newest'], ['title', 'Sort: A–Z']];
-  return `<div class="bar">
-    <div class="chips">${sc('active', 'Active')}${sc('done', 'Done')}${sc('all', 'All')}</div>
-    <select id="t-q"><option value="all">All quadrants</option>${ORDER.map(k => `<option value="${k}" ${C.fq === k ? 'selected' : ''}>${QN[k]}</option>`).join('')}</select>
-    <select id="t-tag"><option value="all">All tags</option><option value="none" ${C.ftag === 'none' ? 'selected' : ''}>No tag</option>${liveTags().map(g => `<option value="${g.id}" ${C.ftag === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select>
-    <select id="t-group"><option value="none">No grouping</option><option value="tag" ${C.group === 'tag' ? 'selected' : ''}>Group by tag</option></select>
-    <select id="t-sort">${sorts.map(([v, l]) => `<option value="${v}" ${C.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-  </div><div id="tbl">${tableBodyHTML()}</div>`;
+  const n = filterCount();
+  return `<div class="tbbar"><button class="fbtn" data-act="filters" aria-label="Filters">${FILTER}Filters${n ? `<span class="fbadge">${n}</span>` : ''}</button><span class="fsum">${esc(filterSummary())}</span></div><div id="tbl">${tableBodyHTML()}</div>`;
+}
+function openFilters() {
+  const grp = (name, key, opts) => `<div class="fgrp"><div class="lbl">${name}</div><div class="chips">${opts.map(([v, l]) => `<button type="button" class="chip ${C[key] === v ? 'on' : ''}" data-fk="${key}" data-fv="${esc(v)}">${esc(l)}</button>`).join('')}</div></div>`;
+  openSheet(`<div class="sh"><b>Filters</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
+    ${grp('Show', 'status', [['active', 'Active'], ['done', 'Done'], ['all', 'All']])}
+    ${grp('Board', 'fq', [['all', 'All'], ...ORDER.map(k => [k, QN[k]])])}
+    ${grp('Tag', 'ftag', [['all', 'All'], ['none', 'No tag'], ...liveTags().map(g => [g.id, g.name])])}
+    ${grp('Group', 'group', [['none', 'None'], ['tag', 'By tag']])}
+    ${grp('Sort by', 'sort', SORTS)}
+    <div class="acts"><button class="btn" id="fl-reset">Reset</button><button class="btn primary" data-act="close">Show results</button></div>`, () => {
+    const paint = () => {
+      document.querySelectorAll('#panel [data-fk]').forEach(b => b.classList.toggle('on', C[b.dataset.fk] === b.dataset.fv));
+      render();
+    };
+    document.querySelectorAll('#panel [data-fk]').forEach(b => { b.onclick = () => { setC({ [b.dataset.fk]: b.dataset.fv }); paint(); }; });
+    $('#fl-reset').onclick = () => { setC({ status: 'active', fq: 'all', ftag: 'all', group: 'none', sort: 'q' }); paint(); };
+  });
 }
 
 function render() {
@@ -401,8 +440,8 @@ function render() {
   const y = window.scrollY;
   const inner = {};
   document.querySelectorAll('#app [data-drop]').forEach(el => { inner[el.dataset.drop] = el.scrollTop; });
-  $('#app').innerHTML = C.view === 'table' ? tableHTML() : matrixHTML();
-  $('#app').className = 'v-' + C.view + (C.compact === false ? '' : ' compact');
+  $('#app').innerHTML = C.view === 'table' ? tableHTML() : C.view === 'list' ? listHTML() : matrixHTML();
+  $('#app').className = 'v-' + C.view + (C.compact === false || C.view === 'list' ? '' : ' compact');
   document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('on', b.dataset.v === C.view));
   updateSyncUI();
   document.querySelectorAll('#app [data-drop]').forEach(el => { if (inner[el.dataset.drop]) el.scrollTop = inner[el.dataset.drop]; });
@@ -637,14 +676,15 @@ function openAdd(preQ, prefill) {
   openSheet(`<div class="sh"><b>New task</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
     <input id="f-title" type="text" placeholder="What needs doing?" maxlength="200" autocomplete="off" enterkeyhint="done">
     <div id="f-sim" class="sim" hidden></div>
-    <button type="button" class="linkbtn" id="f-more">+ Add detail</button>
-    <textarea id="f-detail" rows="3" maxlength="2000" placeholder="Detail (optional)" hidden></textarea>
-    <div class="lbl">Put in</div>${chips(q)}
+    <div class="lbl">Board</div>${chips(q)}
     <div class="lbl">Deadline (optional)</div>${dateField('f-due', '', true)}
     <div class="lbl">Type</div>${typeField('f-prv', false)}
-    <div class="lbl">Progress</div>${progressField('f-pg', 0)}
-    <div class="lbl">Repeat</div>${repeatSelect('f-rep', null)}
-    <div class="lbl">Tags (optional)</div>${tagPicker(tsel)}
+    <button type="button" class="linkbtn" id="f-more" aria-expanded="false">More options ▾</button>
+    <div id="f-opts" hidden>
+      <div class="lbl">Detail</div><textarea id="f-detail" rows="3" maxlength="2000" placeholder="Detail (optional)"></textarea>
+      <div class="lbl">Tags (optional)</div>${tagPicker(tsel)}
+      <div class="lbl">Repeat</div>${repeatSelect('f-rep', null)}
+    </div>
     <div class="acts"><span id="f-msg" class="msg"></span><button class="btn primary" id="f-add">Add</button></div>`, () => {
     const ti = $('#f-title'), de = $('#f-detail');
     let simT, dupOk = false;
@@ -655,22 +695,22 @@ function openAdd(preQ, prefill) {
     };
     ti.addEventListener('input', () => { dupOk = false; $('#f-msg').textContent = ''; clearTimeout(simT); simT = setTimeout(showSim, 120); });
     if (prefill) { ti.value = prefill; showSim(); }
-    sheetGuard = () => !!(ti.value.trim() || de.value.trim() || $('#f-due').value || +$('#f-pg-n').value);
+    sheetGuard = () => !!(ti.value.trim() || de.value.trim() || $('#f-due').value);
     bindChips(v => { q = v; });
     bindQuickDates();
-    const getPg = bindProgress('f-pg');
     bindTagPicker(tsel);
-    $('#f-more').onclick = () => { de.hidden = !de.hidden; $('#f-more').textContent = de.hidden ? '+ Add detail' : '− Hide detail'; if (!de.hidden) de.focus(); };
+    const opts = $('#f-opts'), setOpts = on => { opts.hidden = !on; $('#f-more').textContent = on ? 'Fewer options ▴' : 'More options ▾'; $('#f-more').setAttribute('aria-expanded', on); };
+    $('#f-more').onclick = () => { setOpts(opts.hidden); if (!opts.hidden) de.focus(); };
     const go = () => {
       const v = ti.value.trim();
       if (!v) { ti.focus(); return; }
       if (!dupOk && similarTasks(v).some(x => x.exact && !x.t.done)) { // soft guard: ask once before creating an exact duplicate
         dupOk = true; $('#f-msg').textContent = 'Same task exists — tap Add again to create anyway'; ti.focus(); return;
       }
-      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, progress: getPg(), personal: $('#f-prv').checked, repeat: $('#f-rep').value || null, tags: [...tsel] });
-      ti.value = ''; de.value = ''; de.hidden = true; $('#f-sim').hidden = true; $('#f-sim').innerHTML = ''; dupOk = false; $('#f-more').textContent = '+ Add detail'; $('#f-due').value = '';
+      addTask({ title: v, detail: de.value.trim(), q, due: $('#f-due').value || null, personal: $('#f-prv').checked, repeat: $('#f-rep').value || null, tags: [...tsel] });
+      ti.value = ''; de.value = ''; setOpts(false); $('#f-sim').hidden = true; $('#f-sim').innerHTML = ''; dupOk = false; $('#f-due').value = '';
       $('#f-due').dispatchEvent(new Event('input', { bubbles: true }));
-      $('#f-rep').value = ''; $('#f-prv').checked = false; $('#f-pg').value = 0; $('#f-pg').dispatchEvent(new Event('input'));
+      $('#f-rep').value = ''; $('#f-prv').checked = false;
       tsel.clear(); document.querySelectorAll('#panel [data-tg]').forEach(b => b.classList.remove('on'));
       $('#f-msg').textContent = 'Added ✓ → ' + QN[q];
       toast(`✓ Task added to ${QN[q]}: ${v.length > 28 ? v.slice(0, 28) + '…' : v}`, null, true);
@@ -812,12 +852,15 @@ function openTags() {
   });
 }
 
+let settingsTab = 'Sync';
 function openSettings() {
   const status = !configured() ? 'Not connected — data is stored on this device only.'
     : lastErr ? '✗ ' + lastErr
     : D.lastSync ? 'Last sync: ' + new Date(D.lastSync).toLocaleString() : 'Connected.';
-  openSheet(`<div class="sh"><b>Sync (GitHub Gist)</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
-    <div class="lbl">Personal access token (classic, scope: gist)</div>
+  const pane = (n, html) => `<div class="pane" data-pane="${n}" ${settingsTab === n ? '' : 'hidden'}>${html}</div>`;
+  openSheet(`<div class="sh"><b>Settings</b><button class="x" data-act="close" aria-label="Close">✕</button></div>
+    <div class="tabs" role="tablist">${['Sync', 'Preferences', 'Data'].map(n => `<button type="button" role="tab" data-tab="${n}" aria-selected="${settingsTab === n}">${n}</button>`).join('')}</div>
+    ${pane('Sync', `<div class="lbl">Personal access token (classic, scope: gist)</div>
     <input id="s-token" type="password" value="${esc(C.token)}" autocomplete="off" placeholder="ghp_…">
     <div class="lbl">Gist ID (or paste the Gist URL)</div>
     <input id="s-gist" type="text" value="${esc(C.gist)}" autocomplete="off" placeholder="leave empty and tap “Create new Gist”">
@@ -827,23 +870,27 @@ function openSettings() {
       <button class="btn" id="s-create">Create new Gist</button>
       <button class="btn primary" id="s-save">Save &amp; sync</button>
     </div>
-    <div class="lbl">Display &amp; data</div>
-    <label class="chk-row"><input type="checkbox" id="s-compact" ${C.compact === false ? '' : 'checked'}> Compact cards in Matrix (one line, status shown by colour)</label>
+    <div class="acts" style="justify-content:flex-end"><button class="btn danger" id="s-off">Disconnect</button></div>`)}
+    ${pane('Preferences', `<label class="chk-row"><input type="checkbox" id="s-compact" ${C.compact === false ? '' : 'checked'}> Compact cards in Matrix (one line per task)</label>
     <label class="chk-row"><input type="checkbox" id="s-fx" ${C.fx === false ? '' : 'checked'}> Celebration effect when a task is completed 🎉</label>
     <label class="chk-row"><input type="checkbox" id="s-brief" ${C.brief === false ? '' : 'checked'}> Show “Today’s focus” (overdue + due today) when the app opens</label>
     <div class="lbl">Auto-promote tasks due within (Next → Now, Maybe → Hand off)</div>
     <select id="s-promo">${[[0, 'Off'], [1, '1 day'], [2, '2 days'], [3, '3 days'], [5, '5 days']].map(([v, l]) => `<option value="${v}" ${(C.autoPromote === undefined ? 2 : +C.autoPromote) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-    <div class="lbl">Auto-clear done tasks after</div>
-    <select id="s-auto">${[[0, 'Never'], [7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days']].map(([v, l]) => `<option value="${v}" ${(+C.autoClear || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
-    <div class="acts" style="flex-wrap:wrap">
+    <div class="acts"><button class="btn" id="s-install" ${installEvt ? '' : 'hidden'}>Install app</button></div>`)}
+    ${pane('Data', `<div class="acts" style="flex-wrap:wrap">
       <button class="btn" id="s-export">Export backup (.json)</button>
       <button class="btn" id="s-import">Import backup…</button>
       <input type="file" id="s-file" accept="application/json,.json" hidden>
     </div>
-    <div class="acts" style="justify-content:space-between">
-      <button class="btn" id="s-install" ${installEvt ? '' : 'hidden'}>Install app</button>
-      <button class="btn danger" id="s-off">Disconnect</button>
-    </div>`, () => {
+    <span id="s-msg2" class="msg"></span>
+    <div class="lbl">Auto-clear done tasks after</div>
+    <select id="s-auto">${[[0, 'Never'], [7, '7 days'], [14, '14 days'], [30, '30 days'], [60, '60 days']].map(([v, l]) => `<option value="${v}" ${(+C.autoClear || 0) === v ? 'selected' : ''}>${l}</option>`).join('')}</select>`)}`, () => {
+    document.querySelectorAll('#panel [data-tab]').forEach(b => { b.onclick = () => {
+      settingsTab = b.dataset.tab;
+      document.querySelectorAll('#panel [data-tab]').forEach(x => x.setAttribute('aria-selected', x === b));
+      document.querySelectorAll('#panel .pane').forEach(p => { p.hidden = p.dataset.pane !== settingsTab; });
+    }; });
+    const msg2 = $('#s-msg2');
     const msg = $('#s-msg');
     $('#s-compact').onchange = e => { setC({ compact: e.target.checked }); render(); };
     $('#s-fx').onchange = e => { setC({ fx: e.target.checked }); };
@@ -856,7 +903,7 @@ function openSettings() {
       a.download = 'priority-matrix-' + ymd(new Date()).replace(/-/g, '') + '.json';
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-      msg.textContent = '✓ Backup downloaded';
+      msg2.textContent = '✓ Backup downloaded';
     };
     $('#s-import').onclick = () => $('#s-file').click();
     $('#s-file').onchange = async e => {
@@ -868,8 +915,8 @@ function openSettings() {
         if (!ts.length && !gs.length) throw new Error('No tasks found in this file');
         const before = live().length;
         mutate(() => { D.tasks = merge(D.tasks, ts); D.tags = merge(D.tags, gs); });
-        msg.textContent = `✓ Imported — ${live().length - before} new task(s) added (newer local edits are kept)`;
-      } catch (err) { msg.textContent = '✗ ' + (err.message || 'Invalid backup file'); }
+        msg2.textContent = `✓ Imported — ${live().length - before} new task(s) added (newer local edits are kept)`;
+      } catch (err) { msg2.textContent = '✗ ' + (err.message || 'Invalid backup file'); }
       e.target.value = '';
     };
     $('#s-save').onclick = async () => {
@@ -1121,17 +1168,13 @@ document.addEventListener('click', e => {
     case 'sync': configured() ? sync() : openSettings(); break;
     case 'close': closeSheet(); break;
     case 'toggledone': setC({ showDone: !C.showDone }); render(); break;
-    case 'status': setC({ status: a.dataset.v }); render(); break;
+    case 'filters': openFilters(); break;
     case 'cleardone': confirmClearDone(); break;
   }
 });
 document.addEventListener('change', e => {
   const t = e.target;
   if (t.matches && t.matches('.qsel')) { const r = find(t.closest('[data-id]').dataset.id); patch(r.id, { q: t.value, order: null, promotedFor: r.due, homeQ: null }); }
-  else if (t.id === 't-q') { setC({ fq: t.value }); render(); }
-  else if (t.id === 't-tag') { setC({ ftag: t.value }); render(); }
-  else if (t.id === 't-group') { setC({ group: t.value }); render(); }
-  else if (t.id === 't-sort') { setC({ sort: t.value }); render(); }
 });
 document.addEventListener('keydown', e => {
   const el = e.target;
